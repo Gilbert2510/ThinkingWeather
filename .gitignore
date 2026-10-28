@@ -22,3 +22,36 @@ Thumbs.db
 *.aab
 *.ap_
 *.dex
+
+# Credentials and release signing
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.jks
+*.keystore
+secrets/
+.kotlin/
+
+# Private release signing configuration (examples remain tracked)
+keystore.properties
+key.properties
+signing.properties
+*.pfx
+*.jceks
+
+# Local archives, packaged distributions and diagnostics
+local-archive/
+dist/
+app/release/
+*.log
+*.hprof
+*.heapdump
+hs_err_pid*
+replay_pid*
+*.tmp
+*.bak
+*~
+.vscode/

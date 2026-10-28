@@ -1,0 +1,23 @@
+ThinkingWeather / 随想天气
+
+This application was renamed from Window Weather / 窗外. The former name is
+retained here only to identify the original project and its attribution.
+
+This repository retains the Apache License, Version 2.0 distributed with the
+original project. See LICENSE.
+
+The existing Git history records original contributions by Haotian Yang and
+subsequent contributions by Gilbert2510. This notice preserves attribution;
+it does not replace the individual authorship recorded in Git.
+
+2026 modifications include a Kotlin / Jetpack Compose Android rewrite,
+a Kotlin weather gateway, revised network and credential handling,
+new release signing configuration, source / resource reorganization,
+and the ThinkingWeather application name and package migration. Existing
+authorship and the release signing certificate are preserved.
+
+Weather data and related service attribution remain governed by QWeather's
+own terms and applicable data-source requirements. They are not relicensed
+under the source-code license of this repository.
+
+Third-party dependencies retain their own licenses. See docs/LICENSING.md.

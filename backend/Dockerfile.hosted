@@ -1,0 +1,17 @@
+# Build from the repository root. Only explicitly named build files and source are copied.
+FROM eclipse-temurin:25-jdk AS build
+WORKDIR /build
+COPY gradlew ./gradlew
+COPY version.properties ./version.properties
+COPY gradle/wrapper/ ./gradle/wrapper/
+COPY backend/build.gradle.kts backend/settings.gradle.kts ./backend/
+COPY backend/src/ ./backend/src/
+RUN sed -i 's/\r$//' gradlew && sh ./gradlew -p backend installDist --no-daemon
+
+FROM eclipse-temurin:25-jre AS runtime
+WORKDIR /opt/weather-gateway
+COPY --from=build --chown=10001:10001 /build/backend/build/install/backend/ ./
+USER 10001:10001
+ENV BIND_ADDRESS=0.0.0.0
+EXPOSE 8080
+ENTRYPOINT ["/opt/weather-gateway/bin/backend"]

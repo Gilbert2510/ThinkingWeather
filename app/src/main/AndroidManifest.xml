@@ -1,83 +1,23 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:tools="http://schemas.android.com/tools"
-    package="com.windowweather.android"
-    android:versionCode="2"
-    android:versionName="1.0.1">
-
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET" />
-    <uses-permission
-        android:name="android.permission.ACCESS_FINE_LOCATION"
-        tools:ignore="CoarseFineLocation" />
-    <uses-permission android:name="android.permission.READ_PHONE_STATE" />
-    <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE" />
-    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
-    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" /> <!-- 访问sd卡需要添加的权限 -->
-    <uses-permission
-        android:name="android.permission.WRITE_EXTERNAL_STORAGE"
-        android:maxSdkVersion="32" />
-    <uses-permission
-        android:name="android.permission.READ_EXTERNAL_STORAGE"
-        android:maxSdkVersion="32" />
-
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <application
-        android:name="org.litepal.LitePalApplication"
-        android:allowBackup="true"
+        android:allowBackup="false"
+        android:fullBackupContent="false"
         android:dataExtractionRules="@xml/data_extraction_rules"
-        android:fullBackupContent="@xml/backup_rules"
-        android:icon="@mipmap/ic_title"
+        android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
-        android:roundIcon="@mipmap/ic_title_round"
+        android:networkSecurityConfig="@xml/network_security_config"
         android:supportsRtl="true"
-        android:theme="@style/Background.Theme.WindowWeather"
-        android:usesCleartextTraffic="true"
-        tools:targetApi="31">
-        <meta-data
-            android:name="design_width_in_dp"
-            android:value="360" />
-        <meta-data
-            android:name="design_height_in_dp"
-            android:value="780" />
-
-        <activity
-            android:name=".activity.StartActivity"
-            android:exported="true">
-
+        android:theme="@style/Theme.ThinkingWeather"
+        android:usesCleartextTraffic="false">
+        <activity android:name=".MainActivity" android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
-
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
-        <activity
-            android:name=".dialog.DialogActivity"
-            android:exported="false" />
-        <activity
-            android:name=".activity.FirstLoadActivity"
-            android:exported="false" />
-        <activity
-            android:name=".activity.MainSettingActivity"
-            android:exported="false" />
-        <activity
-            android:name=".activity.UrlWeatherActivity"
-            android:exported="false" />
-        <activity
-            android:name=".activity.CityManageChangeActivity"
-            android:exported="true"
-            android:theme="@style/noAnimationTheme" />
-        <activity
-            android:name=".activity.CityManageActivity"
-            android:exported="true" />
-        <activity
-            android:name=".activity.WeatherActivity"
-            android:exported="false" />
-        <activity
-            android:name=".activity.CitySearchActivity"
-            android:exported="false"
-            android:launchMode="singleTop" />
-        <activity
-            android:name=".activity.MainActivity"
-            android:exported="true" />
     </application>
-
 </manifest>

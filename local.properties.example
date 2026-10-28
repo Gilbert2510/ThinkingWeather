@@ -1,0 +1,6 @@
+# Copy WEATHER_BASE_URL into local.properties alongside your sdk.dir.
+# Public HTTPS gateway URL only. Never add QWeather keys or private keys here.
+WEATHER_BASE_URL=https://weather.example.com
+# Optional USB / emulator development gateway (run scripts/connect-device.ps1 first).
+# Release builds never use this value. Keep the computer and adb connection active.
+# WEATHER_DEBUG_BASE_URL=http://127.0.0.1:8080
