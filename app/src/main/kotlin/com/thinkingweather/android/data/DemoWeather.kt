@@ -88,22 +88,39 @@ object DemoWeather {
             HourlyForecast(time.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME), (temperature + difference).toString(),
                 sample.text, if (night) nightIcon() else dayIcon,
                 if (wet || snow) (60 + index % 4 * 10).toString() else (index % 3 * 5).toString(),
-                precipitation, if (category == WeatherCategory.WIND) "36" else "9", humidity.toString())
+                precipitation, if (category == WeatherCategory.WIND) "36" else "9", humidity.toString(),
+                windDir = "东北风", windScale = if (category == WeatherCategory.WIND) "5-6" else "2-3",
+                pressure = "1015", vis = "18", cloud = if (category == WeatherCategory.CLEAR) "8" else "82",
+                dew = (temperature - 8).toString(), uvIndex = if (night) "0" else if (wet || snow) "2" else "4")
         }
         val daily = (0 until 7).map { index ->
             DailyForecast(local.toLocalDate().plusDays(index.toLong()).toString(), (temperature + 4 + index % 3).toString(),
                 (temperature - 5 + index % 2).toString(), sample.text, dayIcon, sample.text, nightIcon(),
                 "06:18", "17:32", "亏凸月", "805", if (wet || snow) "2" else "4", humidity.toString(),
-                if (wet || snow) "80" else "10", precipitation, "东北风", if (category == WeatherCategory.WIND) "5-6" else "2-3")
+                if (wet || snow) "80" else "10", precipitation, "东北风", if (category == WeatherCategory.WIND) "5-6" else "2-3",
+                windSpeedDay = if (category == WeatherCategory.WIND) "36" else "9", windDirNight = "东北风",
+                windScaleNight = "2-3", windSpeedNight = "9", moonrise = "19:42", moonset = "08:15")
         }
         val obscured = category in setOf(WeatherCategory.FOG, WeatherCategory.HAZE, WeatherCategory.DUST)
         return WeatherSnapshot(city, CurrentWeather(local.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME), temperature.toString(),
             (temperature - 1).toString(), sample.text, sample.icon, "东北风", if (category == WeatherCategory.WIND) "5-6" else "2",
             if (category == WeatherCategory.WIND) "36" else "9", humidity.toString(), precipitation,
-            "1015", if (obscured) "2" else "18", if (category == WeatherCategory.CLEAR) "8" else "82"), hourly, daily,
+            "1015", if (obscured) "2" else "18", if (category == WeatherCategory.CLEAR) "8" else "82",
+            dew = (temperature - 8).toString(), uvIndex = if (sample.night) "0" else if (wet || snow) "2" else "4", wind360 = "45"), hourly, daily,
             air = AirQuality(if (obscured) "156" else "36", if (obscured) "中度污染" else "优", if (obscured) "PM2.5" else "NA",
                 if (obscured) "118" else "18", "31", "12", "4", "0.4", "56", pm2p5Unit = "μg/m³", pm10Unit = "μg/m³",
-                no2Unit = "μg/m³", so2Unit = "μg/m³", coUnit = "mg/m³", o3Unit = "μg/m³"),
-            fetchedAt = nowMillis, isDemo = true, sourceUrl = "", sources = listOf("本地演示数据"), licenses = emptyList())
+                no2Unit = "μg/m³", so2Unit = "μg/m³", coUnit = "mg/m³", o3Unit = "μg/m³",
+                indexCode = "cn-mee", indexName = "中国 AQI",
+                generalAdvice = "示例建议：关注本地空气质量，合理安排户外活动。"),
+            fetchedAt = nowMillis, isDemo = true, sourceUrl = "", sources = listOf("本地演示数据"), licenses = emptyList(),
+            indices = listOf(
+                LifeIndex(local.toLocalDate().toString(), "3", "穿衣指数", if (temperature < 10) "2" else "4",
+                    if (temperature < 10) "冷" else "较舒适", "示例建议：早晚适当增添外套，按体感调整衣物。"),
+                LifeIndex(local.toLocalDate().toString(), "5", "紫外线指数", if (wet || snow) "2" else "3",
+                    if (wet || snow) "弱" else "中等", "示例建议：白天外出时注意遮阳。"),
+                LifeIndex(local.toLocalDate().toString(), "6", "旅游指数", if (wet || snow) "4" else "2",
+                    if (wet || snow) "较不宜" else "较适宜", "示例建议：根据天气变化安排出游，留意临近预报。"),
+                LifeIndex(local.toLocalDate().toString(), "16", "防晒指数", "3", "中等", "示例建议：户外活动可使用遮阳帽或遮阳伞。"),
+            ))
     }
 }

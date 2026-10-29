@@ -6,10 +6,20 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class WeatherModelsTest {
+    @Test fun legacyCachedWindDirectionsHaveReadableDescriptions() {
+        assertEquals("西南偏西风", displayWindDirection("西西南风"))
+        assertEquals("东北偏北风", displayWindDirection("NNE"))
+        assertEquals("东南风", displayWindDirection("东南风"))
+        assertEquals("风向不定", displayWindDirection("风向不定"))
+    }
+
     @Test fun temperatureConvertsAndLabelsCorrectly() {
         assertEquals("32°F", TemperatureUnit.FAHRENHEIT.format("0", true))
         assertEquals("-40°", TemperatureUnit.FAHRENHEIT.format("-40"))
-        assertEquals("21°C", TemperatureUnit.CELSIUS.format("20.6", true))
+        assertEquals("21℃", TemperatureUnit.CELSIUS.format("20.6", true))
+        assertEquals("21℃", TemperatureUnit.CELSIUS.format("20.6"))
+        assertEquals("-10℃", TemperatureUnit.CELSIUS.format("-10"))
+        assertEquals("21", TemperatureUnit.CELSIUS.number("20.6"))
         assertEquals("—", TemperatureUnit.CELSIUS.format(""))
         assertEquals("—", TemperatureUnit.CELSIUS.format("NaN"))
     }

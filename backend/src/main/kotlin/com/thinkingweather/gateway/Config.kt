@@ -23,6 +23,7 @@ data class Config(
     val perPeerRequestsPerMinute: Int = 60,
     val globalRequestsPerMinute: Int = 600,
     val upstreamRequestsPerMinute: Int = 180,
+    val enableIndices: Boolean = true,
 ) {
     val ready get() = apiHost != null && auth != null
 
@@ -58,6 +59,7 @@ data class Config(
             return Config(
                 value("BIND_ADDRESS") ?: "127.0.0.1", port, host, auth, api, bool("QWEATHER_ENABLE_AIR"), bool("QWEATHER_ENABLE_WARNINGS"),
                 requests("GATEWAY_PER_PEER_RPM", 60), requests("GATEWAY_GLOBAL_RPM", 600), requests("QWEATHER_UPSTREAM_RPM", 180),
+                enableIndices = bool("QWEATHER_ENABLE_INDICES"),
             )
         }
     }

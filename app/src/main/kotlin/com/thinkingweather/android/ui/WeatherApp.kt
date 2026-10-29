@@ -18,14 +18,18 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.rememberGraphicsLayer
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
@@ -33,7 +37,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
@@ -71,10 +74,16 @@ import kotlinx.coroutines.delay
 fun WeatherApp(vm: WeatherViewModel, onRequestLocation: () -> Unit) {
     val state by vm.uiState.collectAsStateWithLifecycle()
     var page by rememberSaveable { mutableStateOf("home") }
+    var insightSection by rememberSaveable { mutableStateOf("current") }
+    val pageState = rememberSaveableStateHolder()
     val homeListState = rememberLazyListState()
     LaunchedEffect(state.selectedCity.location) { homeListState.scrollToItem(0) }
     val keyboard = LocalSoftwareKeyboardController.current
-    val goBack: () -> Unit = { keyboard?.hide(); page = "home" }
+    val goBack: () -> Unit = {
+        keyboard?.hide()
+        page = when (page) { "privacy", "about" -> "settings"; "search" -> "cities"; else -> "home" }
+    }
+    fun depth(destination: String) = when (destination) { "home" -> 0; "privacy", "about", "search" -> 2; else -> 1 }
     val clockMillis by produceState(System.currentTimeMillis()) {
         while (true) { value = System.currentTimeMillis(); delay(60_000) }
     }
@@ -85,18 +94,33 @@ fun WeatherApp(vm: WeatherViewModel, onRequestLocation: () -> Unit) {
             targetState = page,
             modifier = Modifier.fillMaxSize(),
             transitionSpec = {
-                val forward = targetState != "home"
+                val forward = depth(targetState) > depth(initialState)
                 (slideInHorizontally(tween(300)) { if (forward) it else -it / 5 } +
                     fadeIn(tween(260)) + scaleIn(tween(300), initialScale = .985f)) togetherWith
                     (slideOutHorizontally(tween(300)) { if (forward) -it / 5 else it } + fadeOut(tween(220)))
             },
             label = "weather-pages",
         ) { destination ->
-            when (destination) {
-                "cities" -> CitiesPage(state, vm, onRequestLocation, onBack = goBack)
-                "settings" -> SettingsPage(state, vm, onBack = goBack)
-                else -> WeatherHome(state, vm, onRequestLocation, clockMillis, homeListState,
-                    onCities = { page = "cities" }, onSettings = { page = "settings" })
+            pageState.SaveableStateProvider(destination) {
+                when (destination) {
+                    "cities" -> CitiesPage(state, vm, onRequestLocation, onBack = goBack, onSearch = { page = "search" })
+                    "search" -> CitySearchPage(state, vm, onBack = goBack, onSelected = { keyboard?.hide(); page = "home" })
+                    "settings" -> SettingsPage(state, vm, onBack = goBack,
+                        onPrivacy = { page = "privacy" }, onAbout = { page = "about" })
+                    "privacy" -> PrivacyPage(goBack)
+                    "about" -> AboutPage(state, goBack)
+                    "insights" -> if (state.snapshot != null) WeatherInsightsPage(state.snapshot!!, state.temperatureUnit, insightSection, goBack)
+                        else Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+                            Column(Modifier.fillMaxSize().safeDrawingPadding().padding(horizontal = 22.dp)) {
+                                PageHeader("天气详情", state.selectedCity.name, goBack)
+                                Text("天气数据尚未就绪，请返回主页更新。", modifier = Modifier.padding(top = 24.dp),
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                    else -> WeatherHome(state, vm, onRequestLocation, clockMillis, homeListState,
+                        onCities = { page = "cities" }, onSettings = { page = "settings" },
+                        onDetails = { insightSection = it; page = "insights" })
+                }
             }
         }
     }
@@ -126,6 +150,7 @@ private fun PageSystemBars(useDarkIcons: Boolean) {
 private fun WeatherHome(
     state: WeatherUiState, vm: WeatherViewModel, onRequestLocation: () -> Unit,
     clockMillis: Long, homeListState: LazyListState, onCities: () -> Unit, onSettings: () -> Unit,
+    onDetails: (String) -> Unit,
 ) {
     val systemNight = androidx.compose.foundation.isSystemInDarkTheme()
     var previousVisual by remember { mutableStateOf(WeatherCategory.CLEAR to systemNight) }
@@ -133,6 +158,24 @@ private fun WeatherHome(
     val category = state.snapshot?.now?.let { weatherCategory(it.icon, it.text) } ?: previousVisual.first
     SideEffect { if (state.snapshot != null) previousVisual = category to night }
     val background = animatedWeatherColors(category, night)
+    val locationVisible = remember { MutableTransitionState(false) }
+    var locationText by remember { mutableStateOf("") }
+    LaunchedEffect(state.lastLocationMessage) {
+        state.lastLocationMessage?.let { locationText = it }
+        locationVisible.targetState = state.lastLocationMessage != null
+    }
+    val backdrop = rememberGraphicsLayer()
+    var toolbarHeight by remember { mutableIntStateOf(0) }
+    val density = LocalDensity.current
+    val headerHeight = with(density) { toolbarHeight.toDp() }
+    val scrolled by remember { derivedStateOf { homeListState.firstVisibleItemIndex > 0 || homeListState.firstVisibleItemScrollOffset > 8 } }
+    // Start the three-second display only once the homepage is visible.
+    LaunchedEffect(state.lastLocationMessage) {
+        state.lastLocationMessage?.takeUnless { it.startsWith("正在") }?.let { message ->
+            delay(3_000)
+            vm.clearLocationMessage(message)
+        }
+    }
     val busy by rememberUpdatedState(state.isRefreshing || state.isLoading)
     val refresh by rememberUpdatedState(vm::refresh)
     val pullState = rememberPullDownRefreshState(busy)
@@ -149,24 +192,32 @@ private fun WeatherHome(
             val fontScale = LocalDensity.current.fontScale
             LazyColumn(
                 state = homeListState,
-                modifier = Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()
-                    .testTag("weather-scroll").observePullDownTouch(pullState).nestedScroll(connection)
+                modifier = Modifier.fillMaxSize().navigationBarsPadding()
+                    .observePullDownTouch(pullState).nestedScroll(connection)
                     .graphicsLayer { translationY = translation }
+                    .weatherBackdropSource(backdrop)
+                    .padding(top = headerHeight)
+                    .testTag("weather-scroll")
                     .semantics { customActions = listOf(CustomAccessibilityAction("刷新天气") { if (!busy) refresh(); true }) },
-                contentPadding = PaddingValues(horizontal = if (wide) 32.dp else 22.dp, vertical = 12.dp),
+                contentPadding = PaddingValues(start = if (wide) 32.dp else 22.dp, end = if (wide) 32.dp else 22.dp,
+                    top = 12.dp, bottom = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(18.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                item { WeatherToolbar(state, Modifier.widthIn(max = 1040.dp), onCities, onSettings) }
                 if (state.isDemo) item {
                     InfoStrip("示例预览 · 非实时天气", "当前展示内置样例，请勿用于出行决策。", "说明", onSettings, Modifier.widthIn(max = 1040.dp))
                 }
                 state.errorMessage?.let { message -> item {
                     InfoStrip(if (state.snapshot != null) "暂时无法更新" else "天气获取失败", message, "重试", vm::refresh, Modifier.widthIn(max = 1040.dp))
                 } }
-                state.lastLocationMessage?.let { message -> item {
-                    InfoStrip("位置信息", message, "城市", onCities, Modifier.widthIn(max = 1040.dp))
-                } }
+                if (locationVisible.currentState || locationVisible.targetState) item(key = "location-message") {
+                    AnimatedVisibility(visibleState = locationVisible,
+                        enter = fadeIn(tween(180)) + expandVertically(tween(260), expandFrom = Alignment.Top),
+                        exit = fadeOut(tween(160)) + shrinkVertically(tween(300), shrinkTowards = Alignment.Top)) {
+                        InfoStrip("位置信息", locationText, "城市", onCities,
+                            Modifier.widthIn(max = 1040.dp).testTag("location-message"))
+                    }
+                }
                 val snapshot = state.snapshot
                 if (snapshot == null) {
                     item { EmptyWeather(state, onLocation = onRequestLocation, onCities = onCities, onRetry = vm::refresh, onDemo = { vm.setDemoMode(true) }) }
@@ -174,38 +225,52 @@ private fun WeatherHome(
                     if (snapshot.isStale && !snapshot.isDemo) item {
                         InfoStrip("正在显示已保存的天气", "网络或数据源暂时不可用，以下信息可能已过时。", "更新", vm::refresh, Modifier.widthIn(max = 1040.dp))
                     }
-                    item { WeatherHero(snapshot, state.temperatureUnit, Modifier.widthIn(max = 1040.dp), wide) }
+                    item { WeatherHero(snapshot, state.temperatureUnit, Modifier.widthIn(max = 1040.dp)
+                        .clip(RoundedCornerShape(24.dp)).clickable(onClickLabel = "查看天气实况详情") { onDetails("current") }, wide) }
                     val cached = snapshot.isStale || state.errorMessage != null || clockMillis - snapshot.fetchedAt > 60 * 60 * 1000
                     val visibleWarnings = snapshot.warnings.filter { warning ->
                         val expiry = runCatching { OffsetDateTime.parse(warning.endTime).toInstant().toEpochMilli() }.getOrNull()
                         if (expiry != null) expiry > clockMillis else !cached
                     }
                     if (visibleWarnings.isNotEmpty()) item { WarningsCard(visibleWarnings, cached, Modifier.widthIn(max = 1040.dp)) }
-                    item { HourlyCard(snapshot.hourly, state.temperatureUnit, Modifier.widthIn(max = 1040.dp)) }
+                    item { HourlyCard(snapshot.hourly, state.temperatureUnit, Modifier.widthIn(max = 1040.dp)
+                        .clickable(onClickLabel = "查看逐小时详情") { onDetails("hourly") }) }
                     item {
                         if (wide) Row(Modifier.widthIn(max = 1040.dp).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(18.dp), verticalAlignment = Alignment.Top) {
-                            DailyCard(snapshot.daily, state.temperatureUnit, Modifier.weight(1.12f), snapshot.city.tz)
+                            DailyCard(snapshot.daily, state.temperatureUnit, Modifier.weight(1.12f)
+                                .clickable(onClickLabel = "查看每日详情") { onDetails("daily") }, snapshot.city.tz)
                             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(18.dp)) {
-                                SunCard(snapshot, Modifier.fillMaxWidth())
-                                AirCard(snapshot.air, Modifier.fillMaxWidth())
+                                if (snapshot.air != null) AirCard(snapshot.air, Modifier.fillMaxWidth().clickable { onDetails("air") })
+                                SunCard(snapshot, Modifier.fillMaxWidth().clickable { onDetails("sun") }, clockMillis)
+                                if (snapshot.indices.isNotEmpty()) LifeIndicesCard(snapshot, Modifier.fillMaxWidth().clickable { onDetails("life") })
                             }
                         } else Column(Modifier.widthIn(max = 1040.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
-                            DailyCard(snapshot.daily, state.temperatureUnit, timeZone = snapshot.city.tz)
-                            SunCard(snapshot)
+                            DailyCard(snapshot.daily, state.temperatureUnit, Modifier.clickable { onDetails("daily") }, timeZone = snapshot.city.tz)
                         }
                     }
-                    item { MetricGrid(snapshot, state.temperatureUnit, if (wide) { if (fontScale > 1.5f) 2 else 4 } else { if (fontScale > 1.5f) 1 else 2 }, Modifier.widthIn(max = 1040.dp)) }
-                    if (!wide) item { AirCard(snapshot.air, Modifier.widthIn(max = 1040.dp)) }
+                    item { MetricGrid(snapshot, state.temperatureUnit, if (wide) { if (fontScale > 1.5f) 2 else 4 } else { if (fontScale > 1.5f) 1 else 2 }, Modifier.widthIn(max = 1040.dp), onDetails) }
+                    if (!wide) {
+                        if (snapshot.air != null) item { AirCard(snapshot.air, Modifier.widthIn(max = 1040.dp).clickable(onClickLabel = "查看空气质量详情") { onDetails("air") }) }
+                        item { SunCard(snapshot, Modifier.widthIn(max = 1040.dp).clickable(onClickLabel = "查看日照详情") { onDetails("sun") }, clockMillis) }
+                        if (snapshot.indices.isNotEmpty()) item { LifeIndicesCard(snapshot, Modifier.widthIn(max = 1040.dp).clickable { onDetails("life") }) }
+                    }
                     if (snapshot.partialFailures.isNotEmpty()) item {
                         InfoStrip("数据提示", snapshot.partialFailures.map(::partialFailureText).distinct().joinToString("；"), "更新", vm::refresh, Modifier.widthIn(max = 1040.dp))
                     }
-                    item { SourceFooter(snapshot, Modifier.widthIn(max = 1040.dp)) }
                 }
+                item { Text("数据由和风天气提供", color = SkyMuted.copy(alpha = .75f), fontSize = 11.sp,
+                    modifier = Modifier.padding(top = 8.dp, bottom = 18.dp)) }
                 item { Spacer(Modifier.height(12.dp)) }
+            }
+            FrostedToolbarBackdrop(backdrop, background.first(), scrolled,
+                Modifier.fillMaxWidth().height(headerHeight + 26.dp).align(Alignment.TopCenter))
+            Box(Modifier.fillMaxWidth().align(Alignment.TopCenter).onSizeChanged { toolbarHeight = it.height }
+                .statusBarsPadding().padding(horizontal = if (wide) 32.dp else 22.dp, vertical = 9.dp)) {
+                WeatherToolbar(state, Modifier.widthIn(max = 1040.dp).align(Alignment.Center).testTag("home-toolbar"), onCities, onSettings)
             }
             RefreshHeader(
                 pullState, initialLoading = state.isLoading && state.snapshot == null,
-                modifier = Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(top = 4.dp),
+                modifier = Modifier.align(Alignment.TopCenter).padding(top = headerHeight + 4.dp),
             )
         }
     }
@@ -255,13 +320,13 @@ private fun WeatherHero(snapshot:WeatherSnapshot, unit:TemperatureUnit, modifier
         BoxWithConstraints(Modifier.fillMaxWidth()) {
         val fontScale=LocalDensity.current.fontScale
         val symbolSize=if(wide) 200.dp else if(fontScale>1.3f) 88.dp else 124.dp
-        val number=unit.format(now.temp).removeSuffix("°")
+        val number=unit.number(now.temp)
         val available=(maxWidth-symbolSize).value
-        val temperatureSize=minOf(if(wide)140f else 112f,available/fontScale/(number.length*.52f+.38f)).coerceAtLeast(38f)
+        val temperatureSize=minOf(if(wide)140f else 112f,available/fontScale/(number.length*.52f+.55f)).coerceAtLeast(38f)
         Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text(if(snapshot.isDemo) "样例天气" else observationTime(now.obsTime),color=SkyMuted,fontSize=12.sp,letterSpacing=.4.sp)
-                Text(buildAnnotatedString{append(number);withStyle(SpanStyle(fontSize=(temperatureSize*.48f).sp,letterSpacing=0.sp)){append("°")}},
+                Text(buildAnnotatedString{append(number);withStyle(SpanStyle(fontSize=(temperatureSize*.38f).sp,letterSpacing=0.sp)){append(unit.symbol)}},
                     color=SkyWhite,fontSize=temperatureSize.sp,lineHeight=(temperatureSize*1.12f).sp,fontWeight=FontWeight.ExtraLight,letterSpacing=(-5).sp,maxLines=1,softWrap=false,
                     modifier=Modifier.padding(top=9.dp).clearAndSetSemantics{contentDescription="当前温度 ${unit.format(now.temp,true)}"})
             }
@@ -276,7 +341,7 @@ private fun WeatherHero(snapshot:WeatherSnapshot, unit:TemperatureUnit, modifier
         },color=SkyWhite.copy(alpha=.86f),fontSize=14.sp,lineHeight=24.sp)
         Spacer(Modifier.height(22.dp))
         FlowRow(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(10.dp),verticalArrangement=Arrangement.spacedBy(9.dp)) {
-            StatusPill(Glyph.Wind, "${now.windDir} ${now.windScale.ifBlank{"—"}}级")
+            StatusPill(Glyph.Wind, "${displayWindDirection(now.windDir)} ${now.windScale.ifBlank{"—"}}级")
             StatusPill(Glyph.Drop, "湿度 ${value(now.humidity,"%")}")
         }
     }
@@ -297,21 +362,21 @@ private fun HourlyCard(hours:List<HourlyForecast>,unit:TemperatureUnit,modifier:
         if(hours.isEmpty()) Text("逐小时预报暂不可用",color=SkyMuted,fontSize=14.sp)
         else {
             val scroll=rememberScrollState()
-            val itemWidth=66.dp
+            val itemWidth=(66 * LocalDensity.current.fontScale.coerceAtLeast(1f)).dp
             Column(Modifier.horizontalScroll(scroll)) {
                 Row {
                     hours.forEachIndexed { index,hour ->
                         Column(Modifier.width(itemWidth).clearAndSetSemantics{contentDescription="${hourLabel(hour.fxTime)}，${hour.text}，${unit.format(hour.temp,true)}，降水概率 ${hour.pop.ifBlank{"未知"}}${if(hour.pop.isNotBlank())"%" else ""}"},horizontalAlignment=Alignment.CenterHorizontally) {
                             Text(hourLabel(hour.fxTime),color=if(index==0)SkyWhite else SkyMuted,fontSize=11.sp)
                             WeatherSymbol(hour.icon,hour.text,Modifier.padding(vertical=11.dp).size(31.dp),night=isNightIcon(hour.icon))
-                            Text(unit.format(hour.temp),color=SkyWhite,fontSize=20.sp,fontWeight=FontWeight.Light)
+                            Text(unit.format(hour.temp),color=SkyWhite,fontSize=20.sp,fontWeight=FontWeight.Light,maxLines=1,softWrap=false)
                         }
                     }
                 }
                 TemperatureCurve(hours.map{it.temp.toFloatOrNull()?.takeIf{value->value.isFinite()}},Modifier.width(itemWidth*hours.size).height(70.dp).padding(horizontal=32.dp,vertical=13.dp))
                 Row {
                     hours.forEach { hour -> Column(Modifier.width(itemWidth).clearAndSetSemantics{},horizontalAlignment=Alignment.CenterHorizontally) {
-                        Text(hour.text,color=SkyMuted,fontSize=10.sp,maxLines=1)
+                        Text(hour.text,color=SkyMuted,fontSize=10.sp,maxLines=1,overflow=TextOverflow.Ellipsis)
                         Text(if(hour.pop.isNotBlank())"${hour.pop}%" else "—",color=Color(0xFFC1E6F0),fontSize=11.sp,modifier=Modifier.padding(top=6.dp),maxLines=1)
                     } }
                 }
@@ -385,21 +450,24 @@ private fun RangeBar(low:Float,high:Float,min:Float,max:Float,modifier:Modifier)
 private data class Metric(val label:String,val value:String,val unit:String,val detail:String,val glyph:Glyph)
 
 @Composable
-private fun MetricGrid(snapshot:WeatherSnapshot,unit:TemperatureUnit,columns:Int,modifier:Modifier=Modifier) {
+private fun MetricGrid(snapshot:WeatherSnapshot,unit:TemperatureUnit,columns:Int,modifier:Modifier=Modifier,onDetails:(String)->Unit={}) {
     val now=snapshot.now;val today=snapshot.daily.firstOrNull()
     val metrics=listOf(
-        Metric("体感温度",unit.format(now.feelsLike).removeSuffix("°"),if(unit==TemperatureUnit.CELSIUS)"°C" else "°F","实际气温 ${unit.format(now.temp)}",Glyph.Sun),
+        Metric("体感温度",unit.number(now.feelsLike),unit.symbol,"实际气温 ${unit.format(now.temp)}",Glyph.Sun),
         Metric("相对湿度",now.humidity,"%",when(now.humidity.toIntOrNull()){in 0..39->"空气偏干燥";in 40..70->"湿度适中";in 71..100->"空气较湿润";else->"暂无湿度说明"},Glyph.Drop),
-        Metric("风速",now.windSpeed,"km/h","${now.windDir} · ${now.windScale.ifBlank{"—"}}级",Glyph.Wind),
+        Metric("风速",now.windSpeed,"km/h","${displayWindDirection(now.windDir)} · ${now.windScale.ifBlank{"—"}}级",Glyph.Wind),
         Metric("今日最高紫外线",today?.uvIndex.orEmpty(),"",uvLabel(today?.uvIndex),Glyph.Sun),
         Metric("能见度",now.vis,"km","当前水平能见距离",Glyph.Eye),
         Metric("气压",now.pressure,"hPa","当前地面气压",Glyph.Pressure),
         Metric("小时降水",now.precip,"mm","过去 1 小时降水量",Glyph.Drop),
         Metric("云量",now.cloud,"%","天空被云覆盖的比例",Glyph.Eye),
-    )
+    ).filter { it.value.isNotBlank() }
     Column(modifier.fillMaxWidth(),verticalArrangement=Arrangement.spacedBy(12.dp)) {
         metrics.chunked(columns).forEach{row->Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(12.dp)) {
-            row.forEach { metric -> MetricCard(metric,Modifier.weight(1f)) }
+            row.forEach { metric -> MetricCard(metric,Modifier.weight(1f).clickable(onClickLabel = "查看${metric.label}详情") {
+                onDetails(when(metric.label) { "今日最高紫外线" -> "uv"; "风速" -> "wind"; "相对湿度" -> "humidity"; else -> "indices" })
+            }) }
+            repeat(columns - row.size) { Spacer(Modifier.weight(1f)) }
         }}
     }
 }
@@ -421,21 +489,24 @@ private fun MetricCard(metric:Metric,modifier:Modifier) {
 }
 
 @Composable
-private fun SunCard(snapshot:WeatherSnapshot,modifier:Modifier=Modifier) {
+private fun SunCard(snapshot:WeatherSnapshot,modifier:Modifier=Modifier,nowMillis:Long=System.currentTimeMillis()) {
     val today=snapshot.daily.firstOrNull()
+    val time = if (snapshot.isDemo) runCatching { OffsetDateTime.parse(snapshot.now.obsTime).toInstant().toEpochMilli() }.getOrDefault(nowMillis) else nowMillis
+    val solar = solarWindow(today?.sunrise.orEmpty(), today?.sunset.orEmpty(), today?.fxDate.orEmpty(), snapshot.city.tz, time)
+    val phase = when (solar.phase) {
+        SolarPhase.BEFORE_SUNRISE -> "日出前"
+        SolarPhase.DAYLIGHT -> "白昼"
+        SolarPhase.AFTER_SUNSET -> "日落后"
+        SolarPhase.UNAVAILABLE -> "当地时间"
+    }
     GlassCard(modifier) {
-        PanelHeading("日出与日落",today?.moonPhase?.takeIf{it.isNotBlank()})
-        Canvas(Modifier.fillMaxWidth().height(72.dp).clearAndSetSemantics{}) {
-            val p=Path().apply{moveTo(size.width*.06f,size.height*.9f);cubicTo(size.width*.23f,-size.height*.15f,size.width*.77f,-size.height*.15f,size.width*.94f,size.height*.9f)}
-            drawLine(Color.White.copy(alpha=.18f),Offset(0f,size.height*.9f),Offset(size.width,size.height*.9f),1.dp.toPx())
-            drawPath(p,Color(0xFFE9D7AF).copy(alpha=.9f),style=Stroke(2.dp.toPx()))
-            drawCircle(Color(0xFFF1DBA4),7.dp.toPx(),Offset(size.width*.5f,size.height*.115f))
-        }
+        PanelHeading("日出与日落", phase)
+        SunPath(solar.progress)
         Row(Modifier.fillMaxWidth().padding(top=13.dp),horizontalArrangement=Arrangement.SpaceBetween) {
             Column { Text("日出",color=SkyMuted,fontSize=11.sp);Text(today?.sunrise?.takeIf{it.isNotBlank()}?:"—",color=SkyWhite,fontSize=21.sp,fontWeight=FontWeight.Light,modifier=Modifier.padding(top=5.dp)) }
             Column(horizontalAlignment=Alignment.End) {Text("日落",color=SkyMuted,fontSize=11.sp);Text(today?.sunset?.takeIf{it.isNotBlank()}?:"—",color=SkyWhite,fontSize=21.sp,fontWeight=FontWeight.Light,modifier=Modifier.padding(top=5.dp))}
         }
-        Text("时间均为当地时间 · 弧线为示意",color=SkyMuted.copy(alpha=.8f),fontSize=10.sp,modifier=Modifier.padding(top=16.dp))
+        Text(if (today?.sunrise.isNullOrBlank() || today?.sunset.isNullOrBlank()) "日出日落时间暂未提供" else "时间均为当地时间 · 太阳轨迹示意",color=SkyMuted.copy(alpha=.8f),fontSize=10.sp,modifier=Modifier.padding(top=16.dp))
     }
 }
 
@@ -447,25 +518,50 @@ private fun AirCard(air:AirQuality?,modifier:Modifier=Modifier) {
             Text("暂未提供空气质量",color=SkyWhite,fontSize=18.sp,fontWeight=FontWeight.Light)
             Text("此数据依地区与服务权限提供，请以当地监测信息为准。",color=SkyMuted,fontSize=12.sp,lineHeight=21.sp,modifier=Modifier.padding(top=10.dp))
         } else {
-            Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(16.dp)) {
-                Text(air.aqi.ifBlank{"—"},color=SkyWhite,fontSize=44.sp,fontWeight=FontWeight.ExtraLight)
-                Column {Text(air.category.ifBlank{"暂无等级"},color=SkyAccent,fontSize=17.sp);if(air.primary.isNotBlank() && !air.primary.equals("NA",ignoreCase=true))Text("首要污染物 ${air.primary}",color=SkyMuted,fontSize=11.sp,modifier=Modifier.padding(top=4.dp))}
+            val pollutants = listOf(Triple("PM₂.₅", air.pm2p5, air.pm2p5Unit), Triple("PM₁₀", air.pm10, air.pm10Unit), Triple("O₃", air.o3, air.o3Unit))
+                .filter { it.second.isNotBlank() }
+            val largeText = LocalDensity.current.fontScale > 1.35f
+            Row(Modifier.fillMaxWidth(), verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(20.dp)) {
+                Column(Modifier.weight(1f)) {
+                    Text(air.aqi.ifBlank{"—"},color=SkyWhite,fontSize=44.sp,fontWeight=FontWeight.ExtraLight)
+                    Text(air.category.ifBlank{"暂无等级"},color=SkyAccent,fontSize=16.sp)
+                    if(air.primary.isNotBlank() && !air.primary.equals("NA",ignoreCase=true)) Text("首要污染物 ${air.primary}",color=SkyMuted,fontSize=10.sp,lineHeight=16.sp,modifier=Modifier.padding(top=5.dp))
+                }
+                if (pollutants.isNotEmpty()) Column(Modifier.weight(1.1f), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    pollutants.forEach { (label, amount, measurementUnit) ->
+                        Row(Modifier.fillMaxWidth().semantics(mergeDescendants = true) {}, verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text(label, color = SkyMuted, fontSize = 11.sp, modifier = Modifier.weight(1f))
+                            if (largeText) Column(horizontalAlignment = Alignment.End) {
+                                Text(amount, color = SkyWhite, fontSize = 17.sp, fontWeight = FontWeight.Medium)
+                                if (measurementUnit.isNotBlank()) Text(measurementUnit, color = SkyMuted, fontSize = 9.sp)
+                            } else Text(buildAnnotatedString {
+                                append(amount)
+                                if (measurementUnit.isNotBlank()) withStyle(SpanStyle(color = SkyMuted, fontSize = 9.sp)) { append(" $measurementUnit") }
+                            }, color = SkyWhite, fontSize = 17.sp, fontWeight = FontWeight.Medium, maxLines = 1)
+                        }
+                    }
+                }
             }
-            Spacer(Modifier.height(16.dp))
-            Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(16.dp)) {
-                AirValue("PM₂.₅",air.pm2p5,air.pm2p5Unit,Modifier.weight(1f));AirValue("PM₁₀",air.pm10,air.pm10Unit,Modifier.weight(1f));AirValue("O₃",air.o3,air.o3Unit,Modifier.weight(1f))
-            }
-            Text("浓度单位由数据源提供 · AQI 以数据源口径为准",color=SkyMuted.copy(alpha=.8f),fontSize=10.sp,modifier=Modifier.padding(top=14.dp))
+            Text("数据源 AQI · 查看污染物详情 ›",color=SkyMuted.copy(alpha=.8f),fontSize=10.sp,modifier=Modifier.padding(top=12.dp))
         }
     }
 }
 
 @Composable
-private fun AirValue(label:String,value:String,unit:String,modifier:Modifier) {
-    Column(modifier.semantics(mergeDescendants=true){}) {
-        Text(label,color=SkyMuted,fontSize=10.sp)
-        Text(value.ifBlank{"—"},color=SkyWhite,fontSize=20.sp,fontWeight=FontWeight.Light,modifier=Modifier.padding(top=6.dp))
-        if(unit.isNotBlank() && value.isNotBlank()) Text(unit,color=SkyMuted,fontSize=10.sp,modifier=Modifier.padding(top=3.dp))
+private fun LifeIndicesCard(snapshot: WeatherSnapshot, modifier: Modifier = Modifier) {
+    GlassCard(modifier) {
+        PanelHeading("生活指数", "生活有晴有雨 ›")
+        snapshot.indices.sortedBy { listOf("3", "16", "6", "5").indexOf(it.type).let { priority -> if (priority < 0) 10 else priority } }
+            .take(4).forEachIndexed { index, advice ->
+            if (index > 0) HorizontalDivider(color = Color.White.copy(alpha = .10f), modifier = Modifier.padding(vertical = 13.dp))
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text(advice.name, color = SkyWhite, fontSize = 13.sp, modifier = Modifier.weight(1f))
+                Text(advice.category, color = SkyAccent, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+            }
+            if (advice.text.isNotBlank()) Text(advice.text, color = SkyMuted, fontSize = 12.sp, lineHeight = 20.sp,
+                maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 6.dp))
+        }
     }
 }
 
@@ -486,18 +582,6 @@ private fun WarningsCard(warnings:List<WeatherWarning>,cached:Boolean,modifier:M
                 if(expanded){Text(warning.text,color=SkyWhite.copy(alpha=.9f),fontSize=13.sp,lineHeight=23.sp,modifier=Modifier.padding(top=13.dp));Text(warning.sender,color=SkyMuted,fontSize=10.sp,modifier=Modifier.padding(top=10.dp));Text(warning.endTime.takeIf{it.isNotBlank()}?.let{"有效至 $it"}?:"有效期未提供，请核实官方信息",color=SkyMuted,fontSize=10.sp,lineHeight=18.sp,modifier=Modifier.padding(top=5.dp))}
             }
         }
-    }
-}
-
-@Composable
-private fun SourceFooter(snapshot:WeatherSnapshot,modifier:Modifier) {
-    val uri=LocalUriHandler.current
-    Column(modifier.fillMaxWidth().padding(top=5.dp),horizontalAlignment=Alignment.CenterHorizontally) {
-        Text(if(snapshot.isDemo)"内置示例数据 · 仅供界面预览" else "天气数据 · 和风天气",color=SkyWhite.copy(alpha=.85f),fontSize=11.sp,modifier=Modifier.clip(RoundedCornerShape(12.dp)).clickable(enabled=!snapshot.isDemo){runCatching{uri.openUri(safeWeatherUrl(snapshot.sourceUrl))}}.padding(horizontal=14.dp,vertical=12.dp))
-        if(!snapshot.isDemo) Text("更新于 ${fetchedTime(snapshot.fetchedAt,snapshot.city.tz)} · 天气信息仅供参考",color=SkyMuted,fontSize=10.sp,textAlign=TextAlign.Center)
-        if(!snapshot.isDemo && snapshot.sources.isNotEmpty()) Text("来源：${snapshot.sources.joinToString("、")}",color=SkyMuted,fontSize=10.sp,textAlign=TextAlign.Center,modifier=Modifier.padding(top=7.dp))
-        if(!snapshot.isDemo && snapshot.licenses.isNotEmpty()) Text("许可：${snapshot.licenses.joinToString("、")}",color=SkyMuted,fontSize=10.sp,textAlign=TextAlign.Center,modifier=Modifier.padding(top=4.dp))
-        Text("随想天气，陪你感知每一天",color=SkyWhite.copy(alpha=.52f),fontSize=10.sp,letterSpacing=2.sp,modifier=Modifier.padding(top=16.dp))
     }
 }
 
@@ -531,15 +615,13 @@ private fun dayLabel(value:String,timeZone:String):String = runCatching{
     when(date){today->"今天";today.plusDays(1)->"明天";else->listOf("周一","周二","周三","周四","周五","周六","周日")[date.dayOfWeek.value-1]}
 }.getOrDefault("预报")
 private fun observationTime(value:String):String = if(value.isBlank())"实时天气" else "当地 ${hourLabel(value)} 观测"
-private fun fetchedTime(time:Long,tz:String):String = runCatching{java.time.Instant.ofEpochMilli(time).atZone(ZoneId.of(tz)).format(DateTimeFormatter.ofPattern("M月d日 HH:mm"))}.getOrDefault("最近一次同步")
 private fun value(text:String,unit:String):String = if(text.isBlank())"—" else text+unit
 private fun uvLabel(value:String?):String = when(value?.toFloatOrNull()?.takeIf{it.isFinite() && it>=0}){null->"暂无紫外线数据";in 0f..2.99f->"较弱";in 3f..5.99f->"中等 · 注意防晒";in 6f..7.99f->"较强 · 注意防晒";in 8f..10.99f->"很强 · 减少暴晒";else->"极强 · 避免暴晒"}
 private fun isNightIcon(icon:String):Boolean = icon in setOf("150","151","152","153","350","351","456","457")
 private fun isNight(snapshot:WeatherSnapshot):Boolean = if(snapshot.isDemo) DemoWeather.scenario(snapshot.city).night else isNightIcon(snapshot.now.icon) || runCatching{OffsetDateTime.parse(snapshot.now.obsTime).hour.let{it<6||it>=19}}.getOrDefault(false)
 private fun warningColor(value:String):Color = when(value.lowercase()){ "red","红色"->Color(0xFFFFA6A1);"orange","橙色"->Color(0xFFFFC19C);"yellow","黄色"->Color(0xFFF4DF9B);else->Color(0xFFA6D9FA)}
-internal fun safeWeatherUrl(value:String):String = runCatching{java.net.URI(value).let{if(it.scheme=="https" && !it.host.isNullOrBlank())value else "https://www.qweather.com"}}.getOrDefault("https://www.qweather.com")
 private fun partialFailureText(code:String):String {
-    val name=when(code.substringBeforeLast('_')){"now"->"实时天气";"hourly"->"逐小时预报";"daily"->"每日预报";"air"->"空气质量";"warnings"->"天气预警";else->null}
+    val name=when(code.substringBeforeLast('_')){"now"->"实时天气";"hourly"->"逐小时预报";"daily"->"每日预报";"air"->"空气质量";"warnings"->"天气预警";"indices"->"生活指数";else->null}
     return if(name==null) "部分天气信息暂不可用" else when(code.substringAfterLast('_')){"disabled"->"此服务暂未提供$name";"stale"->"${name}正在显示缓存信息";else->"${name}暂时无法更新"}
 }
 

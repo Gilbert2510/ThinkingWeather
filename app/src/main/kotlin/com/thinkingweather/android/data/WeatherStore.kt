@@ -19,6 +19,7 @@ internal data class SavedWeatherState(
     val selectedCity: City,
     val unit: TemperatureUnit,
     val isDemo: Boolean,
+    val locatedCityLocation: String? = null,
 )
 
 /** DataStore atomically persists settings and a small, mode-separated offline cache. */
@@ -29,6 +30,7 @@ internal class WeatherStore(context: Context, private val configured: Boolean) {
     private val unitKey = stringPreferencesKey("temperature_unit")
     private val demoKey = booleanPreferencesKey("demo_mode")
     private val cacheKey = stringPreferencesKey("weather_cache")
+    private val locatedCityKey = stringPreferencesKey("located_city")
 
     suspend fun read(): SavedWeatherState {
         val prefs = store.data.catch { error -> if (error is IOException) emit(emptyPreferences()) else throw error }.first()
@@ -38,22 +40,48 @@ internal class WeatherStore(context: Context, private val configured: Boolean) {
         }.getOrDefault(emptyList()).ifEmpty { DefaultCities.initial }
         return SavedWeatherState(cities, cities.firstOrNull { it.location == prefs[selectedKey] } ?: cities.first(),
             runCatching { TemperatureUnit.valueOf(prefs[unitKey].orEmpty()) }.getOrDefault(TemperatureUnit.CELSIUS),
-            prefs[demoKey] ?: !configured)
+            prefs[demoKey] ?: !configured,
+            prefs[locatedCityKey]?.takeIf { key -> cities.any { it.location == key } })
     }
 
     suspend fun setCities(cities: List<City>, selected: City) {
         store.edit { prefs ->
-            prefs[citiesKey] = JSONArray().apply { normalizeSavedCities(cities).forEach { put(WeatherJson.encodeCity(it)) } }.toString()
+            val normalized = normalizeSavedCities(cities)
+            prefs[citiesKey] = JSONArray().apply { normalized.forEach { put(WeatherJson.encodeCity(it)) } }.toString()
             prefs[selectedKey] = selected.location
+            if (normalized.none { it.location == prefs[locatedCityKey] }) prefs.remove(locatedCityKey)
+        }
+    }
+
+    /** Persist selection and the last resolved city in one transaction; no delayed marker-only write. */
+    suspend fun setCities(cities: List<City>, selected: City, locatedCityLocation: String?) {
+        store.edit { prefs ->
+            val normalized = normalizeSavedCities(cities)
+            prefs[citiesKey] = JSONArray().apply { normalized.forEach { put(WeatherJson.encodeCity(it)) } }.toString()
+            prefs[selectedKey] = selected.location
+            if (locatedCityLocation != null && normalized.any { it.location == locatedCityLocation })
+                prefs[locatedCityKey] = locatedCityLocation
+            else prefs.remove(locatedCityKey)
         }
     }
 
     suspend fun setUnit(unit: TemperatureUnit) { store.edit { it[unitKey] = unit.name } }
     suspend fun setDemo(enabled: Boolean) { store.edit { it[demoKey] = enabled } }
 
+    /** Only the last resolved city identity is kept; no location history is stored. */
+    suspend fun setLocatedCity(location: String?) {
+        store.edit { prefs -> if (location == null) prefs.remove(locatedCityKey) else prefs[locatedCityKey] = location }
+    }
+
     suspend fun cached(city: City, isDemo: Boolean): WeatherSnapshot? {
         val prefs = store.data.catch { error -> if (error is IOException) emit(emptyPreferences()) else throw error }.first()
         return decodeCache(prefs[cacheKey]).firstOrNull { it.city.location == city.location && it.isDemo == isDemo }
+    }
+
+    /** City cards warm their cache in one read/parse, rather than once for every saved city. */
+    suspend fun cachedAll(isDemo: Boolean): List<WeatherSnapshot> {
+        val prefs = store.data.catch { error -> if (error is IOException) emit(emptyPreferences()) else throw error }.first()
+        return decodeCache(prefs[cacheKey]).filter { it.isDemo == isDemo }
     }
 
     suspend fun save(snapshot: WeatherSnapshot) {

@@ -13,11 +13,24 @@ it does not replace the individual authorship recorded in Git.
 2026 modifications include a Kotlin / Jetpack Compose Android rewrite,
 a Kotlin weather gateway, revised network and credential handling,
 new release signing configuration, source / resource reorganization,
-and the ThinkingWeather application name and package migration. Existing
-authorship and the release signing certificate are preserved.
+and the ThinkingWeather application name and package migration. Further
+updates add city editing and dedicated search, weather detail charts,
+platform-rendered toolbar effects and optional weather life indices.
+Existing authorship and the release signing certificate are preserved.
 
 Weather data and related service attribution remain governed by QWeather's
 own terms and applicable data-source requirements. They are not relicensed
 under the source-code license of this repository.
 
 Third-party dependencies retain their own licenses. See docs/LICENSING.md.
+
+The backend Chinese administrative display-name table is derived from
+uiwjs/province-city-china, gh-pages revision
+547ade93bc913de0c937200d4fa218d05c0ba97b (2026-10-11).
+This resource is provided under the MIT License, Copyright (c) 2019 wabg.
+Its original license is retained in
+backend/src/main/resources/licenses/province-city-china-MIT.txt.
+Provenance, input hashes and update boundaries are documented in
+backend/src/main/resources/administrative/README.md.
+The resource retains its separate license; the project's source-code
+license remains Apache-2.0.

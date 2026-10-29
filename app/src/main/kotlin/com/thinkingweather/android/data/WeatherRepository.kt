@@ -19,7 +19,8 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
 
-internal class WeatherServiceException(message: String, cause: Throwable? = null) : IOException(message, cause)
+internal open class WeatherServiceException(message: String, cause: Throwable? = null) : IOException(message, cause)
+internal class WeatherOfflineException : WeatherServiceException("当前未连接网络")
 
 internal class WeatherRepository(
     baseUrl: String,
@@ -35,6 +36,8 @@ internal class WeatherRepository(
     }
     private val localDevelopment = debug && DevelopmentGateway.isLocalHost(base?.host)
     val configured: Boolean get() = base != null
+    // USB/host-loopback development can use the computer's connection even when the handset is offline.
+    val networkUnavailable: Boolean get() = !localDevelopment && !hasInternet()
     private val client = OkHttpClient.Builder().connectTimeout(8, TimeUnit.SECONDS).readTimeout(12, TimeUnit.SECONDS)
         .callTimeout(20, TimeUnit.SECONDS).followRedirects(false).followSslRedirects(false).build()
 
@@ -46,6 +49,10 @@ internal class WeatherRepository(
         if (isDemo) DemoWeather.create(city) else WeatherJson.snapshot(request("weather", "location", city.location), city)
     }
 
+    suspend fun currentSummary(city: City): CityWeatherSummary = withContext(Dispatchers.IO) {
+        WeatherJson.currentSummary(request("current", "location", city.location), city)
+    }
+
     private suspend fun request(resource: String, key: String, value: String): String {
         val gateway = base ?: throw WeatherServiceException("尚未配置天气服务地址，请按 README 配置服务后重新构建。")
         if (localDevelopment) DevelopmentGateway.configurationError(gateway.host, emulator)
@@ -55,7 +62,7 @@ internal class WeatherRepository(
         }
         // A USB/ADB-reversed gateway uses the computer's internet connection; the
         // handset itself may have no validated Wi-Fi or cellular internet access.
-        if (!localDevelopment && !hasInternet()) throw WeatherServiceException("当前未连接网络")
+        if (networkUnavailable) throw WeatherOfflineException()
         val url = gateway.newBuilder().addPathSegment("v1").addPathSegment(resource).addQueryParameter(key, value).build()
         val call = client.newCall(Request.Builder().url(url).header("Accept", "application/json").build())
         return suspendCancellableCoroutine { continuation ->

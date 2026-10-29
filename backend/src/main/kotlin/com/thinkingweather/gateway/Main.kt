@@ -31,7 +31,9 @@ class GatewayServer(
     addressOverride: InetSocketAddress? = null,
 ) : AutoCloseable {
     private val client = if (sourceOverride == null && config.ready) QWeatherClient(config.apiHost!!, config.auth!!, config.upstreamRequestsPerMinute) else null
-    private val service = (sourceOverride ?: client)?.let { WeatherService(it, config.weatherApi, config.enableAir, config.enableWarnings) }
+    private val service = (sourceOverride ?: client)?.let {
+        WeatherService(it, config.weatherApi, config.enableAir, config.enableWarnings, enableIndices = config.enableIndices)
+    }
     private val workers = ThreadPoolExecutor(12, 12, 30, TimeUnit.SECONDS, ArrayBlockingQueue(48), ThreadPoolExecutor.AbortPolicy())
     private val active = Semaphore(10)
     private val server = HttpServer.create(addressOverride ?: InetSocketAddress(config.bindAddress, config.port), 32).apply {
@@ -61,7 +63,7 @@ class GatewayServer(
                     respond(exchange, 200, buildJsonObject { put("status", "ok"); put("configured", service != null) })
                     return
                 }
-                if (exchange.requestURI.rawPath !in setOf("/v1/cities", "/v1/weather")) throw GatewayException(404, "not_found")
+                if (exchange.requestURI.rawPath !in setOf("/v1/cities", "/v1/current", "/v1/weather")) throw GatewayException(404, "not_found")
                 val peer = exchange.remoteAddress.address.hostAddress
                 if (!limiter.allow(peer)) {
                     exchange.responseHeaders.set("Retry-After", "60")
@@ -72,6 +74,7 @@ class GatewayServer(
                 val weather = service ?: throw GatewayException(503, "provider_not_configured")
                 val result = when (exchange.requestURI.rawPath) {
                     "/v1/cities" -> weather.cities(Validation.parameters(exchange.requestURI.rawQuery, "q"))
+                    "/v1/current" -> weather.current(Validation.parameters(exchange.requestURI.rawQuery, "location"))
                     else -> weather.weather(Validation.parameters(exchange.requestURI.rawQuery, "location"))
                 }
                 respond(exchange, 200, result)

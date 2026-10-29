@@ -88,6 +88,17 @@ class WeatherNetworkTest {
         }
     }
 
+    @Test(timeout = 10000) fun cityCardsUseTheCurrentOnlyEndpointWithoutForecastRequests() = runBlocking {
+        withGateway { server, repository ->
+            server.enqueue(MockResponse().setBody("""{"now":{"temp":"21","text":"阴","icon":"104"},"fetchedAt":"2026-10-29T02:00:00Z"}"""))
+            val card = repository.currentSummary(DefaultCities.shanghai)
+            assertEquals("21", card.temp)
+            assertEquals(DefaultCities.shanghai.location, card.city.location)
+            assertEquals("/v1/current?location=101020100", server.takeRequest().path)
+            assertEquals(1, server.requestCount)
+        }
+    }
+
     @Test(timeout = 10000) fun failedLiveServiceNeverFallsBackToDemoAndDoesNotExposeServerBody() = runBlocking {
         withGateway { server, repository ->
             server.enqueue(MockResponse().setResponseCode(503).setBody("private-upstream-diagnostic"))

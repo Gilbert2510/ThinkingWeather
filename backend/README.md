@@ -49,6 +49,7 @@ openssl pkey -pubout -in qweather-private.pem -out qweather-public.pem
 - `/weather/v1/current/{lat}/{lon}`、`/weather/v1/hourly/{lat}/{lon}?hours=24`、`/weather/v1/daily/{lat}/{lon}?days=7`：实时、24 小时和 7 天预报。
 - `/weatheralert/v1/current/{lat}/{lon}`：官方天气预警。
 - `/airquality/v1/current/{lat}/{lon}`：空气质量，多种标准的 AQI 保留在原始 `indexes` 中。
+- `/v7/indices/1d?type=0`：当天可用的全部天气生活指数，只发起一次请求；属于独立可选数据，不受天气 v1/v7 选择影响。
 
 参考：[GeoAPI](https://dev.qweather.com/en/docs/api/geoapi/city-lookup/)、[实时天气](https://dev.qweather.com/en/docs/api/weather/weather-current/)、[逐小时](https://dev.qweather.com/en/docs/api/weather/weather-hourly-forecast/)、[逐日](https://dev.qweather.com/en/docs/api/weather/weather-daily-forecast/)、[预警](https://dev.qweather.com/en/docs/api/warning/weather-alert/)、[空气质量](https://dev.qweather.com/en/docs/api/air-quality/air-current/)。
 
@@ -65,6 +66,7 @@ openssl pkey -pubout -in qweather-private.pem -out qweather-public.pem
 | `/health` | `status` 和 `configured`；不访问和风、不验证外部可用性 |
 | `/v1/cities?q=北京` | `location` 城市数组，保留 `id/name/adm1/adm2/country/lat/lon/tz` 等上游字段，另有 `refer/stale` |
 | `/v1/cities?q=116.41%2C39.92` | 同上，用于用户授权后的坐标反查 |
+| `/v1/current?location=101010100` | 城市卡片用的轻量实时天气：`now/refer/stale/cacheAgeSeconds/fetchedAt`；只查询当前天气，不查询小时、每日、空气或预警 |
 | `/v1/weather?location=101010100` | 以下聚合结构 |
 | `/v1/weather?location=116.41%2C39.92` | 同上；参数顺序为**经度、纬度**，与上游路径的纬度/经度顺序不同 |
 
@@ -75,6 +77,7 @@ openssl pkey -pubout -in qweather-private.pem -out qweather-public.pem
   "daily": [],
   "warnings": [],
   "air": null,
+  "indices": [],
   "refer": {"sources": [], "license": []},
   "partialFailures": [],
   "stale": false,
@@ -83,11 +86,21 @@ openssl pkey -pubout -in qweather-private.pem -out qweather-public.pem
 }
 ```
 
+`/v1/current` 与完整预报使用相同的当前天气请求键、2 分钟缓存与有界过期回退，避免进入城市列表后按城市重复请求全部天气接口。客户端应限制并发并缓存卡片结果；卡片失败时不能生成假的温度或替换成演示数值。时间戳 `fetchedAt` 为 ISO-8601，表示该结果缓存对应的获取时间。此路由使用与其他业务路由相同的参数校验、按客户端限流、并发上限与上游预算。
+
+风向将十六方位码转换成直观描述，例如 `wsw` 为“西南偏西风”、`nne` 为“东北偏北风”，静风及风向不定分别保留原意。
+
+城市搜索会在可靠匹配时补全中国县级地区的行政后缀，例如“沙坪坝区”“正定县”“江阴市”“彭水苗族土家族自治县”。匹配使用省/上级城市/名称，已完整、未知或歧义的名称保持提供方原文，不更改 Location ID 或经纬度。随包携带的约 100 KB 对照表来自 MIT 许可的 `uiwjs/province-city-china` 固定快照，来源、校验值、更新方法与原许可证见 [行政名称资源说明](src/main/resources/administrative/README.md)。此表只用于显示补全，不作为实时区划或天气覆盖范围的权威判断。
+
 上面只展示结构，正常天气请求要求实际温度及非空的小时、日预报。v1 响应在网关内统一成 app 使用的 `temp/feelsLike/icon/text/windSpeed/humidity/vis`、小时 `fxTime/temp/icon/pop`、逐日 `fxDate/tempMin/tempMax/iconDay/textDay/sunrise/sunset/uvIndex` 字段。温度使用 °C，风速转为 km/h，能见度转为 km，湿度和降水概率转为百分比。缺失字段保持缺失，禁止将未知数值填成 0。预警保留当前字段并增加 `title/text/pubTime/typeName`；取消消息不作为活动预警展示。
 
 v1 当前天气不提供 `obsTime`，因此服务端不伪造观测时间。`fetchedAt` 表示本次聚合使用的最旧缓存的获取时间近似值，不代表气象观测时间；`cacheAgeSeconds` 是该缓存年龄。必须结合原始预报时间和 `stale` 显示数据新鲜度。
 
 `air` 为当前空气质量 API 的原始对象，`indexes` 内包含不同标准，不能把 QWeather AQI 的小数范围当作中国 AQI。无权限、无覆盖或上游失败时为 `null`。预警、空气质量故障可独立降级，`partialFailures` 会返回 `warnings_unavailable`、`air_unavailable`、`now_stale` 等标志；关闭某项会返回 `_disabled`。空预警和预警获取失败必须由客户端区别展示。
+
+`indices` 为当日生活指数数组，保留提供方的 `date/type/name/level/category/text`。`level` 是每种指数独立的序数等级，不是百分比，也不是实时紫外线测量值；后者单独保存在 `now.uvIndex`，逐日最高值在 `daily[].uvIndex`。只展示有效且与首日预报日期相同的记录，过期跨日建议、重复或不完整记录会被丢弃。海外可用类型由提供方返回，客户端不补造未覆盖内容。无权限或失败仅返回 `indices_unavailable` 和空数组，不影响实况及预报；`204` 无覆盖直接返回空数组。服务端默认开启，可用 `QWEATHER_ENABLE_INDICES=false` 禁用，预算沿用现有上游限流。
+
+生活指数参考：[请求协议](https://dev.qweather.com/docs/api/indices/indices-forecast/)、[类型与地区覆盖](https://dev.qweather.com/docs/api/indices/indices-type/)。客户端将穿衣、防晒、出游等放在日出日落下方，有数据才显示；演示数据明确标注为样例。空气质量详情保留所选 AQI 的标准代码、名称及上游健康建议；污染物继续使用提供方原始单位。
 
 每个上游的 `refer` 和 `metadata.attributions` 均合并入 `refer`，包含文本声明和链接；客户端应完整展示这些归属说明。不得只显示固定商标而丢弃官方预警声明。[元数据与归属要求](https://dev.qweather.com/en/docs/resource/metadata/)
 
@@ -98,6 +111,7 @@ v1 当前天气不提供 `obsTime`，因此服务端不伪造观测时间。`fet
 - 12 个入站工作线程、48 个待处理任务、10 个同时处理的业务请求；上游聚合 8 个工作线程，24 个上游连接并发许可。负载饱和时返回 503 或拒绝连接。
 - 每进程缓存最多 512 个项目，同时合并至多 64 个不同查询，失败冷却 10 秒，避免重试风暴。缓存仅在内存中，重启清空。
 - 城市缓存 24 小时，失败可复用 7 天；实时缓存 2 分钟、过期后最多额外 15 分钟；小时缓存 10 分钟、额外 30 分钟；逐日缓存 30 分钟、额外 60 分钟；空气质量缓存 10 分钟、额外 15 分钟。缓存复用带 `stale` 标志。
+- 生活指数缓存 60 分钟，过期后最多额外 60 分钟；同一位置的指数请求沿用缓存合并和错误冷却。进入客户端详情页只消费已有快照，不单独发起整套上游查询。
 - 预警缓存 60 秒，**不使用过期缓存兜底**。上游失败明确标记不可用，避免将过期预警当作现行预警。
 - 上游连接超时 3 秒，完整响应超时 8 秒；最多接收 512 KiB 压缩响应、解压后最多 1 MiB。使用 gzip 减少流量。
 - 输入长度、参数个数、Location ID 格式、经纬度范围、HTTP 方法和请求体均有限制。坐标规范至小数点后两位，减少精确位置留存和缓存碎片。

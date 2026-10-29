@@ -4,15 +4,15 @@
 
 | 项目 | 正式版 | 调试版 |
 | --- | --- | --- |
-| 版本号 | 1.0.2 | 1.0.2-debug |
-| versionCode | 3 | 3 |
+| 版本号 | 1.0.4 | 1.0.4-debug |
+| versionCode | 5 | 5 |
 | applicationId | com.thinkingweather.android | com.thinkingweather.android.debug |
 | 显示名称 | 随想天气 | 随想天气 · 开发版 |
 | 签名 | 本机独立发布证书 | Android 默认调试证书 |
 
 版本来源为仓库根目录 version.properties。Android 与后端读取 VERSION_NAME；Android 另读取 VERSION_CODE。以后的每次正式发布，VERSION_CODE 都必须递增，VERSION_NAME 按 major.minor.patch 维护。
 
-版本在前次整理中按新发行系列重置为 1。本次模拟器连接与顶部下拉改进发布为 1.0.2 / versionCode 3；指示器静止时隐藏，达到下拉阈值才提示松开，刷新结束后收起。1.0.0 更名时已建立 com.thinkingweather.android 安装 ID，本次继续沿用，可覆盖更新使用同一发布证书的随想天气 1.0.0、1.0.1 并保留数据。更名前的旧包属于另一个应用，其收藏、偏好和缓存不会自动迁移。调试版使用独立包名，可与正式版并存。已上架应用不能通过更名或重置版本号绕过商店的安装 ID 和版本递增规则。[Android 版本规则](https://developer.android.com/studio/publish/versioning)
+版本在前次整理中按新发行系列重置为 1。本轮固定磨砂顶部栏、城市批量编辑与独立搜索、天气详情及可选生活指数改进使用 1.0.4 / versionCode 5；1.0.3 / versionCode 4 的 ℃、直观风向、城市摘要、区县补全及独立隐私/关于页继续保留。顶部下拉指示器仍在静止时隐藏。1.0.0 更名时已建立 com.thinkingweather.android 安装 ID，本次继续沿用；使用同一发布证书可覆盖更新随想天气 1.0.0–1.0.3 并保留数据。更名前的旧包属于另一个应用，其收藏、偏好和缓存不会自动迁移。调试版使用独立包名，可与正式版并存。已上架应用不能通过更名或重置版本号绕过商店的安装 ID 和版本递增规则。[Android 版本规则](https://developer.android.com/studio/publish/versioning)
 
 ## 已生成的本地证书
 
@@ -68,7 +68,9 @@ Signed 任务会先验证私有签名配置。对没有签名配置的 GitHub �
 
 四项要同时提供；不完整配置会立即报错。密钥库应由 CI 的 Secret 文件或受保护步骤注入，默认类型 PKCS12。不要在 YAML、GitHub Issue、日志、截图或上传的构建诊断包中写密码。默认验证工作流不需要这些 Secrets，也不负责发布。
 
-分发 APK 时，统一使用 dist/thinking-weather-1.0.2.apk、dist/thinking-weather-1.0.2.aab 和 dist/thinking-weather-1.0.2-debug.apk；以 [验证记录](VALIDATION.md) 和 dist/SHA256SUMS.txt 确认最终产物后，再上传 GitHub Releases 的附件。不要把 APK/AAB 或签名文件提交到源码分支。dist/ 仅保存本机生成文件，已被 Git 忽略；旧版本产物不作为当前分发文件。
+本轮分发文件使用 dist/thinking-weather-1.0.4.apk、dist/thinking-weather-1.0.4.aab 和 dist/thinking-weather-1.0.4-debug.apk；完成构建与签名核验后，以 [验证记录](VALIDATION.md) 和 dist/SHA256SUMS.txt 确认最终产物，再上传 GitHub Releases 的附件。版本文件的更新本身不代表构建、签名、真实 API 或设备验证已经通过。不要把 APK/AAB 或签名文件提交到源码分支。dist/ 仅保存本机生成文件，已被 Git 忽略；旧版本产物不作为当前分发文件。
+
+1.0.2、1.0.3 产物已分别归档于 dist/previous-versions/1.0.2/ 和 dist/previous-versions/1.0.3/，当前校验文件已更新为 1.0.4。后端行政名称资源单独采用 MIT 许可；分发服务端 JAR/镜像时保留资源内的原许可证和来源说明。生活指数和扩展气象字段仍受和风服务及数据来源条款约束，详见 [LICENSING.md](LICENSING.md)。
 
 ## 本机验证
 

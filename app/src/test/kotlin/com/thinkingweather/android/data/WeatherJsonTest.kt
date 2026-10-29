@@ -13,6 +13,7 @@ class WeatherJsonTest {
         assertTrue(result.hourly.isEmpty())
         assertTrue(result.daily.isEmpty())
         assertTrue(result.warnings.isEmpty())
+        assertTrue(result.indices.isEmpty())
         assertNull(result.air)
         assertFalse(result.isDemo)
         assertEquals(123L, result.fetchedAt)
@@ -89,5 +90,31 @@ class WeatherJsonTest {
         val result = WeatherJson.snapshot("""{"now":{"temp":"16","humidity":null},"daily":[{"tempMax":"20","sunrise":null}]}""", DefaultCities.beijing)
         assertEquals("", result.now.humidity)
         assertEquals("", result.daily.single().sunrise)
+    }
+
+    @Test fun lifeIndexOrdinalValuesAndAdviceRoundtripWithoutInventingUvMeasurements() {
+        val result = WeatherJson.snapshot("""{"now":{"temp":"20"},"indices":[{"date":"2026-10-29","type":"3","name":"穿衣指数","level":"4","category":"较舒适","text":"适当增减衣物"},{"date":"2026-10-29","type":"5","name":"紫外线指数","level":"3","category":"中等","text":""}]}""", DefaultCities.beijing)
+        assertEquals(2, result.indices.size)
+        assertEquals("4", result.indices.first().level)
+        assertEquals("适当增减衣物", result.indices.first().text)
+        assertEquals("", result.now.uvIndex)
+        assertEquals(result, WeatherJson.cachedSnapshot(WeatherJson.encodeSnapshot(result)))
+    }
+
+    @Test fun malformedDuplicateOrEmptyLifeIndicesAreIgnored() {
+        val result = WeatherJson.snapshot("""{"now":{"temp":"20"},"indices":[{},null,{"date":"bad","type":"3","name":"穿衣指数","category":"冷"},{"date":"2026-10-29","type":"99","name":"未知","category":"冷"},{"date":"2026-10-29","type":"3","name":"穿衣指数","category":"冷"},{"date":"2026-10-29","type":"3","name":"重复","text":"重复"}]}""", DefaultCities.beijing)
+        assertEquals(1, result.indices.size)
+        assertEquals("穿衣指数", result.indices.single().name)
+    }
+
+    @Test fun detailedMeasurementsAirStandardAndHealthAdviceSurviveDisk() {
+        val result = WeatherJson.snapshot("""{"now":{"temp":"20","dew":"12","uvIndex":"2","wind360":"45"},"hourly":[{"fxTime":"2026-10-29T12:00+08:00","temp":"21","windDir":"东北风","windScale":"3","pressure":"1015","vis":"18","cloud":"20","dew":"11","uvIndex":"3"}],"daily":[{"fxDate":"2026-10-29","tempMax":"23","tempMin":"14","windSpeedDay":"12","windDirNight":"北风","windScaleNight":"2","windSpeedNight":"8","moonrise":"19:30","moonset":"08:10"}],"air":{"indexes":[{"code":"us-epa","name":"AQI (US)","aqiDisplay":"42","health":{"effect":"No health effects","advice":{"generalPopulation":"Enjoy outdoors","sensitivePopulation":"Enjoy outdoors"}}}]}}""", DefaultCities.beijing)
+        assertEquals("2", result.now.uvIndex)
+        assertEquals("1015", result.hourly.single().pressure)
+        assertEquals("19:30", result.daily.single().moonrise)
+        assertEquals("us-epa", result.air?.indexCode)
+        assertEquals("AQI (US)", result.air?.indexName)
+        assertEquals("Enjoy outdoors", result.air?.generalAdvice)
+        assertEquals(result, WeatherJson.cachedSnapshot(WeatherJson.encodeSnapshot(result)))
     }
 }

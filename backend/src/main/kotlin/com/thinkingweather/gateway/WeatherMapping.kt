@@ -78,15 +78,41 @@ object WeatherMapping {
             field("windDirDay", daytime.objectAt("wind").objectAt("direction").text("compass")?.let(::windDirection))
             field("windScaleDay", daytime.objectAt("wind").text("scale"))
             field("windSpeedDay", measure(daytime.objectAt("wind"), "speed", "km/h"))
+            field("windDirNight", nighttime.objectAt("wind").objectAt("direction").text("compass")?.let(::windDirection))
+            field("windScaleNight", nighttime.objectAt("wind").text("scale"))
+            field("windSpeedNight", measure(nighttime.objectAt("wind"), "speed", "km/h"))
             field("humidity", daytime.number("humidity")?.let { format(it * 100) })
             field("uvIndex", day.text("uvIndexMax"))
             field("sunrise", day.objectAt("astro").text("sunrise")?.let(::clockTime))
             field("sunset", day.objectAt("astro").text("sunset")?.let(::clockTime))
             field("sunriseTime", day.objectAt("astro").text("sunrise"))
             field("sunsetTime", day.objectAt("astro").text("sunset"))
+            field("moonrise", day.objectAt("astro").text("moonrise")?.let(::clockTime))
+            field("moonset", day.objectAt("astro").text("moonset")?.let(::clockTime))
+            field("moonPhase", day.objectAt("astro").text("moonPhase")?.let(::moonPhase))
             field("pop", daytime.objectAt("precipitation").number("probability")?.let { format(it * 100) })
+            val dayRain = measure(daytime.objectAt("precipitation"), "amount", "mm")?.toDoubleOrNull()
+            val nightRain = measure(nighttime.objectAt("precipitation"), "amount", "mm")?.toDoubleOrNull()
+            if (dayRain != null && nightRain != null) field("precip", format(dayRain + nightRain))
         }
     })
+
+    /** Reject incomplete entries and old-day cached advice instead of relabelling it as today's. */
+    fun indices(data: JsonObject, forecastDate: String?): JsonArray = JsonArray(data.arrayAt("daily")
+        .filterIsInstance<JsonObject>()
+        .filter { entry ->
+            val date = entry.text("date")
+            val validDate = date != null && runCatching { java.time.LocalDate.parse(date) }.isSuccess
+            validDate && forecastDate != null && date == forecastDate &&
+                (entry.text("type")?.toIntOrNull() ?: -1) in 1..16 && !entry.text("name").isNullOrBlank() &&
+                (!entry.text("category").isNullOrBlank() || !entry.text("text").isNullOrBlank())
+        }
+        .distinctBy { it.text("date") to it.text("type") }
+        .map { entry -> buildJsonObject {
+            listOf("date", "type", "name", "level", "category", "text").forEach { key ->
+                entry.text(key)?.let { put(key, it) }
+            }
+        } })
 
     fun warnings(data: JsonObject): JsonArray {
         val alerts = data.arrayAt("alerts")
@@ -122,9 +148,13 @@ object WeatherMapping {
     }
 
     private fun clockTime(iso: String) = iso.substringAfter('T', "").take(5).takeIf { Regex("\\d{2}:\\d{2}").matches(it) }
+    private fun moonPhase(value: String) = mapOf(
+        "new-moon" to "新月", "waxing-crescent" to "蛾眉月", "first-quarter" to "上弦月", "waxing-gibbous" to "盈凸月",
+        "full-moon" to "满月", "waning-gibbous" to "亏凸月", "last-quarter" to "下弦月", "waning-crescent" to "残月",
+    )[value] ?: value
     private fun windDirection(code: String) = mapOf(
-        "n" to "北风", "nne" to "北东北风", "ne" to "东北风", "ene" to "东东北风", "e" to "东风", "ese" to "东东南风",
-        "se" to "东南风", "sse" to "南东南风", "s" to "南风", "ssw" to "南西南风", "sw" to "西南风", "wsw" to "西西南风",
-        "w" to "西风", "wnw" to "西西北风", "nw" to "西北风", "nnw" to "北西北风", "none" to "静风", "vrb" to "风向不定",
-    )[code] ?: code
+        "n" to "北风", "nne" to "东北偏北风", "ne" to "东北风", "ene" to "东北偏东风", "e" to "东风", "ese" to "东南偏东风",
+        "se" to "东南风", "sse" to "东南偏南风", "s" to "南风", "ssw" to "西南偏南风", "sw" to "西南风", "wsw" to "西南偏西风",
+        "w" to "西风", "wnw" to "西北偏西风", "nw" to "西北风", "nnw" to "西北偏北风", "none" to "静风", "vrb" to "风向不定",
+    )[code.lowercase()] ?: code
 }

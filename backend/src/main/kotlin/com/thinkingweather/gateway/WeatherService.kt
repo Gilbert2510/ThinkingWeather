@@ -21,6 +21,7 @@ class WeatherService(
     private val enableAir: Boolean = true,
     private val enableWarnings: Boolean = true,
     private val clock: Clock = Clock.systemUTC(),
+    private val enableIndices: Boolean = true,
 ) : AutoCloseable {
     private val workers = ThreadPoolExecutor(8, 8, 30, TimeUnit.SECONDS, ArrayBlockingQueue(64), ThreadPoolExecutor.AbortPolicy())
     private val chinese = mapOf("lang" to "zh")
@@ -30,7 +31,9 @@ class WeatherService(
         val response = lookup(query)
         if (response.value["location"] !is JsonArray && response.value.text("code") != "204") throw GatewayException(502, "invalid_upstream_response")
         return buildJsonObject {
-            put("location", response.value.arrayAt("location"))
+            put("location", JsonArray(response.value.arrayAt("location").map { element ->
+                if (element is JsonObject) AdministrativeNames.enrich(element) else element
+            }))
             put("refer", WeatherMapping.attribution(listOf(response.value)))
             put("stale", response.stale)
         }
@@ -44,14 +47,37 @@ class WeatherService(
         Cached(buildJsonObject { put("code", "204"); put("location", JsonArray(emptyList())) }, false, 0)
     }
 
-    fun weather(rawLocation: String): JsonObject {
-        val location = Validation.location(rawLocation)
-        val coordinates = if (',' in location) Validation.coordinates(location) else {
+    private fun resolveCoordinates(location: String): Coordinates =
+        if (',' in location) Validation.coordinates(location) else {
             val city = lookup(location).value.arrayAt("location").firstOrNull() as? JsonObject
                 ?: throw GatewayException(404, "location_not_found")
             try { Validation.coordinates("${city.text("lon")},${city.text("lat")}") }
             catch (_: GatewayException) { throw GatewayException(502, "invalid_upstream_response") }
         }
+
+    /** City cards need current conditions only; do not multiply full forecast requests per saved city. */
+    fun current(rawLocation: String): JsonObject {
+        val location = Validation.location(rawLocation)
+        val v1 = weatherApi == "v1"
+        val response = if (v1) {
+            source.get("/weather/v1/current/${resolveCoordinates(location).path}", chinese + mapOf("localTime" to "true"), 120_000, 900_000)
+        } else {
+            source.get("/v7/weather/now", chinese + ("location" to location), 120_000, 900_000)
+        }
+        val now = if (v1) WeatherMapping.current(response.value) else response.value.objectAt("now")
+        if (now.text("temp")?.toDoubleOrNull()?.isFinite() != true) throw GatewayException(502, "invalid_upstream_response")
+        return buildJsonObject {
+            put("now", now)
+            put("refer", WeatherMapping.attribution(listOf(response.value)))
+            put("stale", response.stale)
+            put("cacheAgeSeconds", response.ageSeconds)
+            put("fetchedAt", clock.instant().minusSeconds(response.ageSeconds).toString())
+        }
+    }
+
+    fun weather(rawLocation: String): JsonObject {
+        val location = Validation.location(rawLocation)
+        val coordinates = resolveCoordinates(location)
         val parameters = chinese + mapOf("localTime" to "true")
         val requests = linkedMapOf<String, CompletableFuture<Cached<JsonObject>>>()
         fun submit(name: String, path: String, query: Map<String, String>, ttl: Long, stale: Long) {
@@ -72,6 +98,9 @@ class WeatherService(
         // Alerts intentionally never use stale-on-error: stale safety messages can be misleading.
         if (enableWarnings) submit("warnings", "/weatheralert/v1/current/${coordinates.path}", parameters, 60_000, 0)
         if (enableAir) submit("air", "/airquality/v1/current/${coordinates.path}", chinese, 600_000, 900_000)
+        // One optional call obtains every supported type, including the subset available overseas.
+        // Hourly caching avoids multiplying billable requests when users open detail cards.
+        if (enableIndices) submit("indices", "/v7/indices/1d", chinese + mapOf("location" to location, "type" to "0"), 3_600_000, 3_600_000)
         val parts = linkedMapOf<String, Cached<JsonObject>>()
         val failures = mutableListOf<String>()
         requests.forEach { (name, future) ->
@@ -83,6 +112,7 @@ class WeatherService(
         }
         if (!enableWarnings) failures += "warnings_disabled"
         if (!enableAir) failures += "air_disabled"
+        if (!enableIndices) failures += "indices_disabled"
         val nowData = parts.getValue("now").value
         val hourlyData = parts.getValue("hourly").value
         val dailyData = parts.getValue("daily").value
@@ -102,6 +132,12 @@ class WeatherService(
         } ?: JsonArray(emptyList())
         val air = parts["air"]?.value?.takeIf { it["indexes"] is JsonArray && it.arrayAt("indexes").isNotEmpty() }
         if (enableAir && parts.containsKey("air") && air == null) failures += "air_unavailable"
+        val indices = parts["indices"]?.value?.let { data ->
+            if (data["daily"] !is JsonArray && data.text("code") != "204") {
+                failures += "indices_unavailable"
+                JsonArray(emptyList())
+            } else WeatherMapping.indices(data, (daily.firstOrNull() as? JsonObject)?.text("fxDate"))
+        } ?: JsonArray(emptyList())
         parts.filterValues { it.stale }.keys.forEach { failures += "${it}_stale" }
         val age = parts.values.maxOfOrNull { it.ageSeconds } ?: 0
         return buildJsonObject {
@@ -110,6 +146,7 @@ class WeatherService(
             put("daily", daily)
             put("warnings", warnings)
             put("air", air ?: JsonNull)
+            put("indices", indices)
             put("refer", WeatherMapping.attribution(parts.values.map { it.value }))
             put("partialFailures", JsonArray(failures.distinct().map(::JsonPrimitive)))
             put("stale", parts.values.any { it.stale })

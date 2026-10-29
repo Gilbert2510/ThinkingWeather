@@ -228,6 +228,7 @@ class GatewayTest {
                 path.startsWith("/weather/v1/daily/") -> DAILY
                 path.startsWith("/weatheralert/") -> if (optionalFailure) throw GatewayException(502, "upstream_unavailable") else """{"metadata":{"zeroResult":true},"alerts":[]}"""
                 path.startsWith("/airquality/") -> if (optionalFailure) throw GatewayException(502, "upstream_unavailable") else """{"indexes":[{"code":"cn-mee","aqi":42,"category":"优"}]}"""
+                path == "/v7/indices/1d" -> if (optionalFailure) throw GatewayException(502, "upstream_unavailable") else """{"code":"204","daily":[]}"""
                 else -> error("Unexpected path")
             }
             return Cached(json(body), false, 0)

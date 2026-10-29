@@ -52,12 +52,33 @@ fun weatherCategory(icon: String, text: String): WeatherCategory {
 enum class TemperatureUnit {
     CELSIUS, FAHRENHEIT;
 
-    fun format(celsius: String, includeUnit: Boolean = false): String {
+    val symbol: String get() = if (this == CELSIUS) "℃" else "°F"
+
+    fun number(celsius: String): String {
         val value = celsius.toDoubleOrNull()?.takeIf { it.isFinite() } ?: return "—"
         val temperature = (if (this == FAHRENHEIT) value * 9 / 5 + 32 else value).roundToInt()
-        val suffix = if (includeUnit) (if (this == FAHRENHEIT) "°F" else "°C") else "°"
-        return "$temperature$suffix"
+        return temperature.toString()
     }
+
+    fun format(celsius: String, includeUnit: Boolean = false): String {
+        val temperature = number(celsius)
+        if (temperature == "—") return temperature
+        val suffix = if (this == CELSIUS || includeUnit) symbol else "°"
+        return temperature + suffix
+    }
+}
+
+/** Keep older cached compass names readable while retaining already localized descriptions. */
+fun displayWindDirection(value: String): String = when (value.trim().lowercase(Locale.ROOT)) {
+    "nne", "北东北风", "北北东风" -> "东北偏北风"
+    "ene", "东东北风", "东北东风" -> "东北偏东风"
+    "ese", "东东南风", "东南东风" -> "东南偏东风"
+    "sse", "南东南风", "南南东风" -> "东南偏南风"
+    "ssw", "南西南风", "南南西风" -> "西南偏南风"
+    "wsw", "西西南风", "西南西风" -> "西南偏西风"
+    "wnw", "西西北风", "西北西风" -> "西北偏西风"
+    "nnw", "北西北风", "北北西风" -> "西北偏北风"
+    else -> value.trim()
 }
 
 data class CurrentWeather(
@@ -65,11 +86,14 @@ data class CurrentWeather(
     val text: String = "", val icon: String = "100", val windDir: String = "",
     val windScale: String = "", val windSpeed: String = "", val humidity: String = "",
     val precip: String = "", val pressure: String = "", val vis: String = "", val cloud: String = "",
+    val dew: String = "", val uvIndex: String = "", val wind360: String = "",
 )
 
 data class HourlyForecast(
     val fxTime: String = "", val temp: String = "", val text: String = "", val icon: String = "100",
     val pop: String = "", val precip: String = "", val windSpeed: String = "", val humidity: String = "",
+    val windDir: String = "", val windScale: String = "", val pressure: String = "", val vis: String = "",
+    val cloud: String = "", val dew: String = "", val uvIndex: String = "",
 )
 
 data class DailyForecast(
@@ -78,6 +102,14 @@ data class DailyForecast(
     val sunrise: String = "", val sunset: String = "", val moonPhase: String = "", val moonPhaseIcon: String = "",
     val uvIndex: String = "", val humidity: String = "", val pop: String = "", val precip: String = "",
     val windDirDay: String = "", val windScaleDay: String = "",
+    val windSpeedDay: String = "", val windDirNight: String = "", val windScaleNight: String = "",
+    val windSpeedNight: String = "", val moonrise: String = "", val moonset: String = "",
+)
+
+/** Ordinal life-index level is provider-specific, never a percentage or a measured UV value. */
+data class LifeIndex(
+    val date: String = "", val type: String = "", val name: String = "",
+    val level: String = "", val category: String = "", val text: String = "",
 )
 
 data class WeatherWarning(
@@ -91,6 +123,8 @@ data class AirQuality(
     val co: String = "", val o3: String = "",
     val pm2p5Unit: String = "", val pm10Unit: String = "", val no2Unit: String = "",
     val so2Unit: String = "", val coUnit: String = "", val o3Unit: String = "",
+    val indexCode: String = "", val indexName: String = "", val healthEffect: String = "",
+    val generalAdvice: String = "", val sensitiveAdvice: String = "",
 )
 
 data class WeatherSnapshot(
@@ -108,6 +142,7 @@ data class WeatherSnapshot(
     val licenses: List<String> = emptyList(),
     val isStale: Boolean = false,
     val serverCacheAgeSeconds: Long = 0,
+    val indices: List<LifeIndex> = emptyList(),
 )
 
 object DefaultCities {
