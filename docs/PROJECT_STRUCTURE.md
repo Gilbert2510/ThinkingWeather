@@ -26,7 +26,7 @@ Weather/
 │     │  │     ├─ WeatherApp.kt
 │     │  │     ├─ WeatherArt.kt
 │     │  │     ├─ WeatherPages.kt
-│     │  │     ├─ PullUpRefresh.kt
+│     │  │     ├─ PullDownRefresh.kt
 │     │  │     ├─ WeatherBackdrop.kt
 │     │  │     └─ WeatherTheme.kt
 │     │  └─ res/                     图标、基础主题、安全与备份规则
@@ -68,7 +68,7 @@ Weather/
 └─ README.md                        项目入口与常用命令
 ```
 
-Android 的命名空间、Kotlin 包与正式安装 ID 已改为 `com.thinkingweather.android`；网关统一为 `com.thinkingweather.gateway`。Android 的 `main`、`test`、`androidTest` 源码均放在 `kotlin/`，不再借用 `java/` 目录。调试包增加 `.debug`，因此可与正式版同时安装。本次更名改变了安装 ID，系统视为新应用，可与更名前安装并存；原应用收藏、偏好与缓存不会自动迁移。当前版本为 `versionCode=2`、`versionName=1.0.1`，调试版名称增加 `-debug`。版本号在 `version.properties` 维护，变体与签名由 `app/build.gradle.kts` 管理；不能靠修改 Kotlin 的 `package` 来改变安装身份。
+Android 的命名空间、Kotlin 包与正式安装 ID 为 `com.thinkingweather.android`；网关统一为 `com.thinkingweather.gateway`。Android 的 `main`、`test`、`androidTest` 源码均放在 `kotlin/`，不再借用 `java/` 目录。调试包增加 `.debug`，因此可与正式版同时安装。1.0.0 更名时曾改变安装 ID，更名前原应用的收藏、偏好与缓存不会自动迁移；当前 1.0.2 继续沿用随想天气的安装 ID 与签名，可覆盖同签名的 1.0.0、1.0.1。当前版本为 `versionCode=3`、`versionName=1.0.2`，调试版名称增加 `-debug`。版本号在 `version.properties` 维护，变体与签名由 `app/build.gradle.kts` 管理；不能靠修改 Kotlin 的 `package` 来改变安装身份。
 
 ## Android 生产代码
 
@@ -79,13 +79,13 @@ Android 的命名空间、Kotlin 包与正式安装 ID 已改为 `com.thinkingwe
 | [MainActivity.kt](../app/src/main/kotlin/com/thinkingweather/android/MainActivity.kt) | 唯一 Activity；设置边到边系统栏并承载 Compose；创建 ViewModel；管理大致定位权限和一次性定位，超时、离开前台或切换城市时取消传感器请求；为 Android 17 的本机调试入口申请本地网络权限。 |
 | [WeatherViewModel.kt](../app/src/main/kotlin/com/thinkingweather/android/WeatherViewModel.kt) | 定义 `WeatherUiState`，通过只读 `StateFlow` 提供页面状态；协调初始化、切换/删除城市、刷新、搜索防抖、温度单位、演示模式与坐标反查；取消旧协程并用请求代次阻止旧结果覆盖新城市；顺序保存偏好，显示缓存和错误。 |
 | [model/WeatherModels.kt](../app/src/main/kotlin/com/thinkingweather/android/model/WeatherModels.kt) | 定义城市、实时天气、小时/每日预报、预警、空气质量及天气快照；保留数据新鲜度、归属说明和污染物单位；实现摄氏/华氏转换；提供默认城市和本地演示检索表。 |
-| [data/WeatherRepository.kt](../app/src/main/kotlin/com/thinkingweather/android/data/WeatherRepository.kt) | 客户端数据入口；演示模式从本地生成，真实模式通过 OkHttp 请求网关；校验 HTTPS 与本机调试白名单、授权、超时和响应大小；将协程取消传递给网络请求；关闭连接资源。 |
+| [data/WeatherRepository.kt](../app/src/main/kotlin/com/thinkingweather/android/data/WeatherRepository.kt) | 客户端数据入口；先验证网关地址，仅在 debug 模拟器上将 HTTP 回环主机映射为电脑别名并保留端口/编码路径，真机继续走 USB；演示模式本地生成，真实模式通过 OkHttp 请求网关；校验 HTTPS、授权、超时和响应大小，按设备区分连接诊断并传递协程取消。 |
 | [data/WeatherJson.kt](../app/src/main/kotlin/com/thinkingweather/android/data/WeatherJson.kt) | 使用 `org.json` 解析网关协议，并编码/解码缓存；校验实时温度；兼容网关返回的天气与空气质量字段，保留污染物各自单位、缓存时间及部分失败信息。 |
 | [data/WeatherStore.kt](../app/src/main/kotlin/com/thinkingweather/android/data/WeatherStore.kt) | 通过名为 `thinking_weather_v1` 的 Preferences DataStore 原子保存收藏城市、当前城市、单位、演示偏好和天气快照；最多保留 30 座城市、60 份按城市及模式区分的快照；容忍损坏缓存，默认值只用于恢复设置。 |
 | [data/DemoWeather.kt](../app/src/main/kotlin/com/thinkingweather/android/data/DemoWeather.kt) | 依据城市和给定时间生成确定的本地样例；快照明确标记 `isDemo=true`，不访问服务端，也不作为真实请求失败时的兜底。 |
 | [ui/WeatherApp.kt](../app/src/main/kotlin/com/thinkingweather/android/ui/WeatherApp.kt) | 页面组合入口；观察 ViewModel 状态；绘制首页、温度、小时曲线、每日范围、日出日落、指标、空气质量、预警和来源说明；处理加载、错误、缓存与空态；根据宽度和字体大小调整布局；含 Android Studio 预览。 |
 | [ui/WeatherPages.kt](../app/src/main/kotlin/com/thinkingweather/android/ui/WeatherPages.kt) | 独立全屏的城市管理与设置页面，带返回导航；接收输入并把搜索、选择、删除、定位、单位与模式操作交给 ViewModel；展示隐私、数据模式说明和当前构建版本。 |
-| [ui/PullUpRefresh.kt](../app/src/main/kotlin/com/thinkingweather/android/ui/PullUpRefresh.kt) | 在列表到底后处理继续上拉的剩余手势；阻尼、阈值、松开刷新与进行中防重复；显示提示及回弹，不拦截正常列表滚动。 |
+| [ui/PullDownRefresh.kt](../app/src/main/kotlin/com/thinkingweather/android/ui/PullDownRefresh.kt) | 仅在列表顶部处理真实向下拖动；指示器静止时完全隐藏，达到阈值提示松开刷新，支持阻尼、短手势回弹、取消与进行中防重复；语义/键盘滚动不会误触发，刷新结束后收起。 |
 | [ui/WeatherBackdrop.kt](../app/src/main/kotlin/com/thinkingweather/android/ui/WeatherBackdrop.kt) | 按共享天气分类和昼夜选择渐变色与低对比度环境纹理；平滑过渡到新天气色彩，无额外网络和位图。 |
 | [network/NetworkState.kt](../app/src/main/kotlin/com/thinkingweather/android/network/NetworkState.kt) | 网络状态与固定提示文字的纯逻辑；判断调试本机地址、模拟器特征及真机误用模拟器地址的诊断。 |
 | [network/NetworkMonitor.kt](../app/src/main/kotlin/com/thinkingweather/android/network/NetworkMonitor.kt) | 通过系统默认网络回调监听已验证互联网及移动流量，兼顾 VPN；前台注册、后台注销，合并短时间内的重复变化。 |
@@ -96,7 +96,7 @@ Android 的命名空间、Kotlin 包与正式安装 ID 已改为 `com.thinkingwe
 
 | 文件 | 作用 |
 | --- | --- |
-| [app/src/main/AndroidManifest.xml](../app/src/main/AndroidManifest.xml) | 声明启动 Activity、互联网与大致定位权限；配置图标、主题、网络安全和禁用备份；仅启动 Activity 对外导出。 |
+| [app/src/main/AndroidManifest.xml](../app/src/main/AndroidManifest.xml) | 声明启动 Activity、互联网、普通网络状态与大致定位权限；配置图标、主题、网络安全和禁用备份；仅启动 Activity 对外导出。 |
 | [app/src/debug/AndroidManifest.xml](../app/src/debug/AndroidManifest.xml) | 仅为调试包声明 `ACCESS_LOCAL_NETWORK`；正式包不合并此清单。 |
 | [app/src/debug/res/values/strings.xml](../app/src/debug/res/values/strings.xml) | 把调试包显示名称改为“随想天气 · 开发版”，方便与正式版区分。 |
 | [res/drawable/ic_thinking_weather.xml](../app/src/main/res/drawable/ic_thinking_weather.xml) | 当前应用启动图标的矢量前景。 |
@@ -133,10 +133,10 @@ Android 的命名空间、Kotlin 包与正式安装 ID 已改为 `com.thinkingwe
 | --- | --- |
 | [WeatherJsonTest.kt](../app/src/test/kotlin/com/thinkingweather/android/data/WeatherJsonTest.kt) | 必需字段、缺失值、城市去重、空气质量标准与污染物单位、服务端缓存时间和缓存往返解析。 |
 | [WeatherNetworkTest.kt](../app/src/test/kotlin/com/thinkingweather/android/data/WeatherNetworkTest.kt) | 用 MockWebServer 验证真实模式的 URL/参数/响应协议、错误内容隔离、取消请求和后续请求；拒绝本地网络权限时立即失败。 |
-| [WeatherRepositoryTest.kt](../app/src/test/kotlin/com/thinkingweather/android/data/WeatherRepositoryTest.kt) | HTTPS、本机调试主机白名单和禁止 URL 中内嵌账号、查询参数的规则。 |
+| [WeatherRepositoryTest.kt](../app/src/test/kotlin/com/thinkingweather/android/data/WeatherRepositoryTest.kt) | HTTPS、本机调试主机白名单与 URL 边界；模拟器回环映射保留端口及编码路径、真机不映射、HTTPS/release 不改写。 |
 | [WeatherModelsTest.kt](../app/src/test/kotlin/com/thinkingweather/android/model/WeatherModelsTest.kt) | 摄氏/华氏转换，演示天气的明确身份、确定性与按城市差异，中文和拼音演示搜索。 |
 | [NetworkStateTest.kt](../app/src/test/kotlin/com/thinkingweather/android/network/NetworkStateTest.kt) | 未验证 Wi-Fi、移动流量与指定提示文字，以及模拟器检测和受限本机地址识别。 |
-| [WeatherSmokeTest.kt](../app/src/androidTest/kotlin/com/thinkingweather/android/WeatherSmokeTest.kt) | 验证示例标记、预报、城市搜索与收藏隔离、全屏返回、单位切换、上拉手势和雷雨/雪/夜间场景；输出截图，测试前设置本地样例、结束后恢复偏好，不依赖天气服务。 |
+| [WeatherSmokeTest.kt](../app/src/androidTest/kotlin/com/thinkingweather/android/WeatherSmokeTest.kt) | 验证示例标记、预报、城市搜索与收藏隔离、全屏返回、单位切换、顶部下拉及指示器隐藏、雷雨/雪/夜间场景；输出截图，测试前设置本地样例、结束后恢复偏好，不依赖天气服务。 |
 | [GatewayTest.kt](../backend/src/test/kotlin/com/thinkingweather/gateway/GatewayTest.kt) | JWT 签名、配置与参数边界、缓存合并/过期/限流、单位转换、可选接口降级、预警取消、真实 HTTP 路由、无凭据错误和响应体上限。 |
 
 `test/` 为 JVM 测试，适合日常本地与 CI；`androidTest/` 需要设备或模拟器。具体执行结果和未验证范围见 [VALIDATION.md](VALIDATION.md)，不能将示例模式测试等同于真实 API 联调。
@@ -156,7 +156,7 @@ Android 的命名空间、Kotlin 包与正式安装 ID 已改为 `com.thinkingwe
 | [gradle/wrapper/gradle-wrapper.jar](../gradle/wrapper/gradle-wrapper.jar) | Wrapper 引导程序，必须保留在 Git；不是待清理的第三方业务 SDK。 |
 | [gradlew](../gradlew)、[gradlew.bat](../gradlew.bat) | 下载/复用固定 Gradle，分别用于 Unix 与 Windows。 |
 | [scripts/start-backend.ps1](../scripts/start-backend.ps1) | 把本地后端配置作为数据读取并只允许固定变量名，选择 JDK，再以 Gradle 或现有分发包启动；不执行配置内容、不打印凭据。 |
-| [scripts/connect-device.ps1](../scripts/connect-device.ps1) | 定位 SDK adb，检查设备授权和本机后端，建立 USB 端口反向转发；可选覆盖安装并启动调试 APK，设备多于一台时要求明确序列号。 |
+| [scripts/connect-device.ps1](../scripts/connect-device.ps1) | 为 USB 真机定位 SDK adb，检查设备授权和本机后端，建立端口反向转发；可选覆盖安装并启动调试 APK，多设备时要求明确序列号。模拟器由客户端自动选择电脑别名，不依赖此脚本。 |
 | [scripts/new-release-keystore.ps1](../scripts/new-release-keystore.ps1) | 为新的发布序列生成 RSA 3072 位、有效期 10000 天的 PKCS#12 密钥库及本机签名配置；使用 32 字节随机密码，通过子进程环境传给 keytool；Windows 限制为当前用户与 SYSTEM 访问，拒绝覆盖已有文件。备份和使用方式见发布说明。 |
 | [signing/README.md](../signing/README.md) | 说明签名目录中可提交和必须保密的文件，以及本地签名配置的用途。 |
 | [signing/keystore.properties.example](../signing/keystore.properties.example) | 不含真实密码的签名参数模板；实际 `keystore.properties` 与密钥库不提交。 |

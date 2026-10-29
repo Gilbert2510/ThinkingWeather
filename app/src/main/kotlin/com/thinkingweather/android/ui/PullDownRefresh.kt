@@ -1,7 +1,11 @@
 package com.thinkingweather.android.ui
 
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -104,23 +108,27 @@ internal fun rememberPullDownRefreshState(busy: Boolean): PullDownRefreshState {
 }
 
 @Composable
-internal fun RefreshHeader(state: PullDownRefreshState, refreshing: Boolean, initialLoading: Boolean) {
+internal fun RefreshHeader(state: PullDownRefreshState, initialLoading: Boolean, modifier: Modifier = Modifier) {
     val rotation by animateFloatAsState(if (state.ready) 0f else 180f, label = "refresh-arrow")
-    val active = refreshing || state.released
-    val height by animateDpAsState(
-        when { initialLoading -> 8.dp; active -> 44.dp; else -> (28 + 20 * state.progress).dp },
-        label = "refresh-header-height",
-    )
-    Row(
-        Modifier.fillMaxWidth().height(height).testTag("refresh-header")
-            .semantics { liveRegion = LiveRegionMode.Polite },
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+    // Background updates must not expose a stationary refresh hint or reserve list space.
+    val active = state.released
+    AnimatedVisibility(
+        visible = !initialLoading && (active || state.distance > 0f),
+        modifier = modifier,
+        enter = fadeIn() + expandVertically(expandFrom = Alignment.Top),
+        exit = fadeOut() + shrinkVertically(shrinkTowards = Alignment.Top),
     ) {
-        if (!initialLoading) {
+        Row(
+            Modifier.fillMaxWidth().height(48.dp).testTag("refresh-header")
+                .semantics { liveRegion = LiveRegionMode.Polite },
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+        ) {
             if (active) CircularProgressIndicator(Modifier.size(14.dp), color = SkyWhite, strokeWidth = 1.5.dp)
             else LineIcon(Glyph.ArrowUp, Modifier.size(14.dp).graphicsLayer { rotationZ = rotation }, SkyMuted)
-            Text(when { active -> "正在刷新天气"; state.ready -> "松开刷新"; state.distance > 0 -> "继续下拉刷新"; else -> "下拉刷新天气" }, color = SkyMuted, fontSize = 11.sp)
+            if (active || state.ready) {
+                Text(if (active) "正在刷新天气" else "松开刷新", color = SkyMuted, fontSize = 11.sp)
+            }
         }
     }
 }

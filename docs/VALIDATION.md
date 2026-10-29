@@ -1,8 +1,38 @@
 # 本机验证记录
 
-日期：2026-10-28（Asia/Shanghai）。
+最新验证日期：2026-10-29（Asia/Shanghai）。1.0.0 和 1.0.1 的历史记录保留自 2026-10-28。
 
-## 1.0.1 网络与界面改进（当前交付）
+## 1.0.2 模拟器连接与顶部下拉刷新（当前交付）
+
+版本 1.0.2 / versionCode 3，包名与发布证书延续 1.0.1，可覆盖同签名版本并保留数据。
+
+原问题现场已确认：电脑后端及天气接口返回正常，Android 17 本地网络权限已授权，但模拟器重启后 adb 反向转发为空，而旧版本仍向 127.0.0.1 查询，导致显示“暂时无法更新”。新版本只在 debug 且识别为模拟器时，将已验证的 HTTP 回环网关改为电脑别名 10.0.2.2；端口与编码路径保持，真机、HTTPS、release 不改写。恢复工作时另发现电脑后端已停止，已重新构建分发包并启动。
+
+刷新改为顶部下拉。静止时指示器从界面中完全移除，不留列表首项或间距；后台自动更新不会展开它。真实下拉时显示箭头，达到阈值显示“松开刷新”，松手才请求，刷新完成后收起。
+
+| 验证项目 | 结果 |
+| --- | --- |
+| 构建 | debug APK、设备测试 APK、签名 release APK、签名 AAB、R8、资源裁剪与后端分发包成功 |
+| 单元测试 | 客户端 47 项、后端 13 项，共 60 项，0 失败 |
+| 模拟器交互 | 6 项通过；在现有模拟器上覆盖安装并直接调用 instrumentation，未卸载或清除应用数据，测试偏好在结束后恢复 |
+| 手势边界 | 静止无指示器；非顶部、短下拉及语义滚动不刷新；长下拉按住可见“松开刷新”但未发起请求，松手后快照时间更新并隐藏指示器 |
+| 图像检查 | home-sunny.png 静止无提示/占位，pull-down-ready.png 按住显示提示，均已目视检查 |
+| Lint | 0 errors、8 warnings，无新增全局忽略 |
+| 上游 | 本机网关天气 HTTP 200，24 小时、7 日预报，partialFailures 为空 |
+| 重启后直连 | 模拟器正常重启后，确认 adb reverse 中无 8080 转发；启动 1.0.2 调试版，显示实时天气，无更新失败、缓存或示例标记，静止无刷新文字 |
+| 发布签名 | APK v2/v3 有效；AAB 99 个内容条目签名有效且证书指纹与 APK 一致，原发布身份保持 |
+
+| 当前 dist/ 文件 | 字节数 | SHA-256 |
+| --- | --- | --- |
+| thinking-weather-1.0.2.apk | 1,646,669 | 8bd32484752819172a96978853f9dcef02488b434c1c6b5f757fd5a131193491 |
+| thinking-weather-1.0.2.aab | 4,014,799 | 8ced2ac7962fc24aa4663e929e6f21ee495d6fafae6be93087e00cffffb9472a |
+| thinking-weather-1.0.2-debug.apk | 13,162,986 | 09b06dee9fe7ad96f45b7a12429b4afc5fd1c7b79847e4abbca98a2a75f6d981 |
+
+日志为 build/pull-down-network-build.log、build/pull-down-device-tests.log；截图为 build/pull-down-review/，其中 live-direct.png 为重启后直连结果，结构化结果见 build/pull-down-network-proof.json。本轮直接 instrumentation 日志是最新设备结果，旧 connected HTML/XML 报告仅代表前次运行。旧 1.0.1 产物已移至被忽略的 dist/previous-versions/1.0.1/。
+
+正式签名包未配置生产 HTTPS 网关，仍用于明确标注的示例预览；Android Studio/debug 包连接电脑后端，模拟器自动直连、真机使用 USB 转发。独立分发真实天气仍需在线 HTTPS 网关。
+
+## 1.0.1 网络与界面改进（历史记录）
 
 版本为 1.0.1 / versionCode 2，正式与调试安装 ID 延续 com.thinkingweather.android 和 com.thinkingweather.android.debug，发布证书保持不变。
 

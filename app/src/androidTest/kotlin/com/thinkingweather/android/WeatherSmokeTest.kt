@@ -4,7 +4,6 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasScrollToIndexAction
 import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.hasText
-import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onAllNodesWithText
@@ -16,9 +15,11 @@ import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
+import androidx.compose.ui.test.performScrollToIndex
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipeDown
+import androidx.compose.ui.geometry.Offset
 import androidx.lifecycle.ViewModelProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -118,6 +119,8 @@ class WeatherSmokeTest {
     @Test
     fun releasingADownwardDragAtTheTopRefreshesWeather() {
         waitForDescription("当前温度 16°C")
+        compose.onNodeWithTag("refresh-header").assertDoesNotExist()
+        compose.onNodeWithText("松开刷新").assertDoesNotExist()
         val viewModel = ViewModelProvider(compose.activity)[WeatherViewModel::class.java]
         var previousFetch = 0L
         compose.runOnIdle { previousFetch = viewModel.uiState.value.snapshot!!.fetchedAt }
@@ -127,21 +130,29 @@ class WeatherSmokeTest {
         }
         compose.waitForIdle()
         compose.runOnIdle { assertEquals(previousFetch, viewModel.uiState.value.snapshot!!.fetchedAt) }
-        compose.onNodeWithTag("weather-scroll").performScrollToNode(hasTestTag("refresh-header"))
-        compose.onNodeWithText("下拉刷新天气").assertIsDisplayed()
+        compose.onNodeWithTag("weather-scroll").performScrollToIndex(0)
+        compose.onNodeWithTag("refresh-header").assertDoesNotExist()
         compose.onNodeWithTag("weather-scroll").performTouchInput {
             swipeDown(startY = height * .15f, endY = height * .20f, durationMillis = 250)
         }
         compose.waitForIdle()
         compose.runOnIdle { assertEquals(previousFetch, viewModel.uiState.value.snapshot!!.fetchedAt) }
+        compose.onNodeWithTag("refresh-header").assertDoesNotExist()
         compose.onNodeWithTag("weather-scroll").performTouchInput {
-            swipeDown(startY = height * .12f, endY = height * .85f, durationMillis = 700)
+            down(Offset(width / 2f, height * .12f))
+            moveBy(Offset(0f, height * .73f), delayMillis = 700)
         }
+        compose.onNodeWithText("松开刷新").assertIsDisplayed()
+        compose.runOnIdle { assertEquals(previousFetch, viewModel.uiState.value.snapshot!!.fetchedAt) }
+        capture("pull-down-ready")
+        compose.onNodeWithTag("weather-scroll").performTouchInput { up() }
         compose.waitUntil(timeoutMillis = 10_000) {
-            viewModel.uiState.value.snapshot?.fetchedAt?.let { it > previousFetch } == true
+            viewModel.uiState.value.snapshot?.fetchedAt?.let { it > previousFetch } == true &&
+                compose.onAllNodesWithText("松开刷新").fetchSemanticsNodes().isEmpty() &&
+                compose.onAllNodesWithText("正在刷新天气").fetchSemanticsNodes().isEmpty()
         }
-        waitForText("下拉刷新天气")
-        compose.onNodeWithText("下拉刷新天气").assertIsDisplayed()
+        compose.waitForIdle()
+        compose.onNodeWithTag("refresh-header").assertDoesNotExist()
     }
 
     @Test

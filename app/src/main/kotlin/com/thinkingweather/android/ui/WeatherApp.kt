@@ -137,7 +137,11 @@ private fun WeatherHome(
     val refresh by rememberUpdatedState(vm::refresh)
     val pullState = rememberPullDownRefreshState(busy)
     val connection = remember(pullState, homeListState) { pullState.connection(homeListState, { busy }, { refresh() }) }
-    val translation by animateFloatAsState(pullState.distance, tween(150), label = "pull-down-offset")
+    val refreshOffset = with(LocalDensity.current) { 52.dp.toPx() }
+    val translation by animateFloatAsState(
+        if (state.snapshot == null) 0f else if (pullState.released) refreshOffset else pullState.distance,
+        tween(150), label = "pull-down-offset",
+    )
     Box(Modifier.fillMaxSize().background(Brush.verticalGradient(background))) {
         WeatherAtmosphere(category, night)
         BoxWithConstraints(Modifier.fillMaxSize()) {
@@ -147,16 +151,12 @@ private fun WeatherHome(
                 state = homeListState,
                 modifier = Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()
                     .testTag("weather-scroll").observePullDownTouch(pullState).nestedScroll(connection)
-                    .graphicsLayer { translationY = translation * .4f }
+                    .graphicsLayer { translationY = translation }
                     .semantics { customActions = listOf(CustomAccessibilityAction("刷新天气") { if (!busy) refresh(); true }) },
                 contentPadding = PaddingValues(horizontal = if (wide) 32.dp else 22.dp, vertical = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(18.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                item {
-                    RefreshHeader(pullState, refreshing = state.isRefreshing && state.snapshot != null,
-                        initialLoading = state.isLoading && state.snapshot == null)
-                }
                 item { WeatherToolbar(state, Modifier.widthIn(max = 1040.dp), onCities, onSettings) }
                 if (state.isDemo) item {
                     InfoStrip("示例预览 · 非实时天气", "当前展示内置样例，请勿用于出行决策。", "说明", onSettings, Modifier.widthIn(max = 1040.dp))
@@ -203,6 +203,10 @@ private fun WeatherHome(
                 }
                 item { Spacer(Modifier.height(12.dp)) }
             }
+            RefreshHeader(
+                pullState, initialLoading = state.isLoading && state.snapshot == null,
+                modifier = Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(top = 4.dp),
+            )
         }
     }
 }

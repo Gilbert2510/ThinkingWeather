@@ -4,15 +4,15 @@
 
 | 项目 | 正式版 | 调试版 |
 | --- | --- | --- |
-| 版本号 | 1.0.1 | 1.0.1-debug |
-| versionCode | 2 | 2 |
+| 版本号 | 1.0.2 | 1.0.2-debug |
+| versionCode | 3 | 3 |
 | applicationId | com.thinkingweather.android | com.thinkingweather.android.debug |
 | 显示名称 | 随想天气 | 随想天气 · 开发版 |
 | 签名 | 本机独立发布证书 | Android 默认调试证书 |
 
 版本来源为仓库根目录 version.properties。Android 与后端读取 VERSION_NAME；Android 另读取 VERSION_CODE。以后的每次正式发布，VERSION_CODE 都必须递增，VERSION_NAME 按 major.minor.patch 维护。
 
-版本在前次整理中按新发行系列重置为 1，本次网络与界面改进发布为 1.0.1 / versionCode 2。1.0.0 更名时已建立 com.thinkingweather.android 安装 ID，本次继续沿用，可覆盖更新使用同一发布证书的随想天气 1.0.0 并保留数据。更名前的旧包属于另一个应用，其收藏、偏好和缓存不会自动迁移。调试版使用独立包名，可与正式版并存。已上架应用不能通过更名或重置版本号绕过商店的安装 ID 和版本递增规则。[Android 版本规则](https://developer.android.com/studio/publish/versioning)
+版本在前次整理中按新发行系列重置为 1。本次模拟器连接与顶部下拉改进发布为 1.0.2 / versionCode 3；指示器静止时隐藏，达到下拉阈值才提示松开，刷新结束后收起。1.0.0 更名时已建立 com.thinkingweather.android 安装 ID，本次继续沿用，可覆盖更新使用同一发布证书的随想天气 1.0.0、1.0.1 并保留数据。更名前的旧包属于另一个应用，其收藏、偏好和缓存不会自动迁移。调试版使用独立包名，可与正式版并存。已上架应用不能通过更名或重置版本号绕过商店的安装 ID 和版本递增规则。[Android 版本规则](https://developer.android.com/studio/publish/versioning)
 
 ## 已生成的本地证书
 
@@ -20,7 +20,7 @@
 
 - signing/release-keystore.p12：PKCS#12 密钥库，RSA 3072 位，有效期 10000 天。
 - signing/keystore.properties：本地签名配置，包括密钥库相对路径、别名及随机密码。
-- 别名：thinkingweather-release；本次只调整密钥别名，保留原私钥与证书。
+- 别名：thinkingweather-release；更名时曾调整密钥别名，当前沿用原私钥与证书。
 
 现有证书的 SHA-256 指纹仍为 400bf419f75110917b42e58f1a19195c80dbdc357989ebc0e5d4ed671763e050。现有证书主体仍为 CN=Window Weather, OU=Android App，属于历史签名身份，不决定手机上显示的软件名称。不要为改证书中的名称而替换密钥或证书；显示名称已通过 Android 资源改为“随想天气”。更名前的本机签名备份位于已被忽略的 signing/backups/before-thinkingweather/，其中也含敏感材料。
 
@@ -53,6 +53,8 @@ Signed 任务会先验证私有签名配置。对没有签名配置的 GitHub �
 
 生成发布包之前，在本机 local.properties 配置正式 HTTPS 网关 WEATHER_BASE_URL。未配置时，即使 APK 已签名，仍展示示例天气。签名与真实服务接入是独立配置。调试版专用 WEATHER_DEBUG_BASE_URL 绝不会替代正式地址。
 
+本机调试可统一设置 WEATHER_DEBUG_BASE_URL=http://127.0.0.1:8080。debug 模拟器运行时自动将 HTTP 回环主机改为电脑别名 10.0.2.2，保留端口和编码路径；真机保留原地址，通过 USB 转发访问。HTTPS 和 release 地址不改写。模拟器重启后不必重建 adb 转发，但电脑后端仍须运行。连接步骤见 [HOSTING.md](HOSTING.md)。
+
 ## CI 中配置签名
 
 可通过私密环境变量代替本机配置：
@@ -66,7 +68,7 @@ Signed 任务会先验证私有签名配置。对没有签名配置的 GitHub �
 
 四项要同时提供；不完整配置会立即报错。密钥库应由 CI 的 Secret 文件或受保护步骤注入，默认类型 PKCS12。不要在 YAML、GitHub Issue、日志、截图或上传的构建诊断包中写密码。默认验证工作流不需要这些 Secrets，也不负责发布。
 
-分发 APK 时，统一使用 dist/thinking-weather-1.0.1.apk、dist/thinking-weather-1.0.1.aab 和 dist/thinking-weather-1.0.1-debug.apk；以 [验证记录](VALIDATION.md) 和 dist/SHA256SUMS.txt 确认最终产物后，再上传 GitHub Releases 的附件。不要把 APK/AAB 或签名文件提交到源码分支。dist/ 仅保存本机生成文件，已被 Git 忽略；更名前的旧品牌安装包不能作为本次分发文件。
+分发 APK 时，统一使用 dist/thinking-weather-1.0.2.apk、dist/thinking-weather-1.0.2.aab 和 dist/thinking-weather-1.0.2-debug.apk；以 [验证记录](VALIDATION.md) 和 dist/SHA256SUMS.txt 确认最终产物后，再上传 GitHub Releases 的附件。不要把 APK/AAB 或签名文件提交到源码分支。dist/ 仅保存本机生成文件，已被 Git 忽略；旧版本产物不作为当前分发文件。
 
 ## 本机验证
 
