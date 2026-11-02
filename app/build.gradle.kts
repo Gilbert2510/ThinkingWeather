@@ -40,29 +40,16 @@ require(!releaseSigningConfigured || releaseStore?.isFile == true) {
     "The configured release keystore does not exist. Restore it from your private backup."
 }
 
-val localConfiguration = Properties().apply {
-    rootProject.file("local.properties").takeIf { it.exists() }?.inputStream()?.use { load(it) }
-}
 val weatherBaseUrl = providers.gradleProperty("WEATHER_BASE_URL")
     .orElse(providers.environmentVariable("WEATHER_BASE_URL"))
-    .orElse(localConfiguration.getProperty("WEATHER_BASE_URL", ""))
+    .orElse("https://thinkiner-proxy-pjqxglocom.cn-hangzhou.fcapp.run")
     .get().trim().trimEnd('/')
-require(weatherBaseUrl.isEmpty() || runCatching {
+require(runCatching {
     val uri = URI(weatherBaseUrl)
     uri.scheme == "https" && !uri.host.isNullOrBlank() && uri.userInfo == null &&
         uri.query == null && uri.fragment == null
 }.getOrDefault(false)) { "WEATHER_BASE_URL must be an HTTPS URL without credentials, query or fragment." }
 val buildConfigUrl = "\"" + weatherBaseUrl.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
-val debugWeatherBaseUrl = providers.gradleProperty("WEATHER_DEBUG_BASE_URL")
-    .orElse(providers.environmentVariable("WEATHER_DEBUG_BASE_URL"))
-    .orElse(localConfiguration.getProperty("WEATHER_DEBUG_BASE_URL", weatherBaseUrl))
-    .get().trim().trimEnd('/')
-require(debugWeatherBaseUrl.isEmpty() || runCatching {
-    val uri = URI(debugWeatherBaseUrl)
-    (uri.scheme == "https" || (uri.scheme == "http" &&
-        uri.host.removeSurrounding("[", "]") in setOf("localhost", "127.0.0.1", "::1", "10.0.2.2"))) &&
-        !uri.host.isNullOrBlank() && uri.userInfo == null && uri.query == null && uri.fragment == null
-}.getOrDefault(false)) { "WEATHER_DEBUG_BASE_URL requires HTTPS, or HTTP on localhost/127.0.0.1/[::1]/10.0.2.2." }
 
 android {
     namespace = "com.thinkingweather.android"
@@ -93,7 +80,6 @@ android {
         debug {
             applicationIdSuffix = ".debug"
             versionNameSuffix = "-debug"
-            buildConfigField("String", "WEATHER_BASE_URL", "\"$debugWeatherBaseUrl\"")
         }
         release {
             if (releaseSigningConfigured) signingConfig = signingConfigs.getByName("release")
@@ -105,6 +91,10 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
+    }
+    sourceSets {
+        getByName("test").kotlin.directories.add("src/testFixtures/kotlin")
+        getByName("androidTest").kotlin.directories.add("src/testFixtures/kotlin")
     }
     packaging.resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"
     lint { abortOnError = true; checkReleaseBuilds = true }

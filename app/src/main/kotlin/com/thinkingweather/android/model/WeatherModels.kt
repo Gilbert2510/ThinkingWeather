@@ -135,7 +135,6 @@ data class WeatherSnapshot(
     val warnings: List<WeatherWarning> = emptyList(),
     val air: AirQuality? = null,
     val fetchedAt: Long,
-    val isDemo: Boolean,
     val sourceUrl: String = "https://www.qweather.com/",
     val partialFailures: List<String> = emptyList(),
     val sources: List<String> = emptyList(),
@@ -152,38 +151,24 @@ object DefaultCities {
     val guangzhou = City("101280101", "广州", "广东省", "广州", "23.12518", "113.28064")
     val shenzhen = City("101280601", "深圳", "广东省", "深圳", "22.547", "114.08595")
     val chengdu = City("101270101", "成都", "四川省", "成都", "30.65946", "104.06574")
-    private fun sampleCity(name: String, adm1: String, lat: String, lon: String) = City("$lon,$lat", name, adm1, name, lat, lon)
-    val tianjin = sampleCity("天津", "天津市", "39.12", "117.20")
-    val nanjing = sampleCity("南京", "江苏省", "32.06", "118.80")
-    val fuzhou = sampleCity("福州", "福建省", "26.07", "119.30")
-    val xiamen = sampleCity("厦门", "福建省", "24.48", "118.09")
-    val haikou = sampleCity("海口", "海南省", "20.03", "110.33")
-    val wuhan = sampleCity("武汉", "湖北省", "30.59", "114.30")
-    val taiyuan = sampleCity("太原", "山西省", "37.87", "112.55")
-    val shenyang = sampleCity("沈阳", "辽宁省", "41.81", "123.43")
-    val harbin = sampleCity("哈尔滨", "黑龙江省", "45.80", "126.54")
-    val changchun = sampleCity("长春", "吉林省", "43.82", "125.32")
-    val xining = sampleCity("西宁", "青海省", "36.62", "101.78")
-    val guiyang = sampleCity("贵阳", "贵州省", "26.65", "106.63")
-    val chongqing = sampleCity("重庆", "重庆市", "29.56", "106.55")
-    val shijiazhuang = sampleCity("石家庄", "河北省", "38.04", "114.51")
-    val hohhot = sampleCity("呼和浩特", "内蒙古自治区", "40.84", "111.75")
-    val lanzhou = sampleCity("兰州", "甘肃省", "36.06", "103.83")
-    val urumqi = sampleCity("乌鲁木齐", "新疆维吾尔自治区", "43.82", "87.62")
-    val suzhou = sampleCity("苏州", "江苏省", "31.30", "120.58")
-    val demoCatalog = listOf(beijing, shanghai, hangzhou, guangzhou, shenzhen, chengdu, tianjin,
-        nanjing, fuzhou, xiamen, haikou, wuhan, taiyuan, shenyang, harbin, changchun,
-        xining, guiyang, chongqing, shijiazhuang, hohhot, lanzhou, urumqi, suzhou)
-    val all = demoCatalog
+    private fun coordinateCity(name: String, adm1: String, lat: String, lon: String) = City("$lon,$lat", name, adm1, name, lat, lon)
+    val tianjin = coordinateCity("天津", "天津市", "39.12", "117.20")
+    val nanjing = coordinateCity("南京", "江苏省", "32.06", "118.80")
+    val fuzhou = coordinateCity("福州", "福建省", "26.07", "119.30")
+    val xiamen = coordinateCity("厦门", "福建省", "24.48", "118.09")
+    val haikou = coordinateCity("海口", "海南省", "20.03", "110.33")
+    val wuhan = coordinateCity("武汉", "湖北省", "30.59", "114.30")
+    val taiyuan = coordinateCity("太原", "山西省", "37.87", "112.55")
+    val shenyang = coordinateCity("沈阳", "辽宁省", "41.81", "123.43")
+    val harbin = coordinateCity("哈尔滨", "黑龙江省", "45.80", "126.54")
+    val changchun = coordinateCity("长春", "吉林省", "43.82", "125.32")
+    val xining = coordinateCity("西宁", "青海省", "36.62", "101.78")
+    val guiyang = coordinateCity("贵阳", "贵州省", "26.65", "106.63")
+    val chongqing = coordinateCity("重庆", "重庆市", "29.56", "106.55")
+    val shijiazhuang = coordinateCity("石家庄", "河北省", "38.04", "114.51")
+    val hohhot = coordinateCity("呼和浩特", "内蒙古自治区", "40.84", "111.75")
+    val lanzhou = coordinateCity("兰州", "甘肃省", "36.06", "103.83")
+    val urumqi = coordinateCity("乌鲁木齐", "新疆维吾尔自治区", "43.82", "87.62")
+    val suzhou = coordinateCity("苏州", "江苏省", "31.30", "120.58")
     val initial = listOf(beijing, shanghai, hangzhou)
-
-    fun search(query: String): List<City> {
-        val needle = query.trim().lowercase(Locale.ROOT)
-        val english = listOf("beijing", "shanghai", "hangzhou", "guangzhou", "shenzhen", "chengdu", "tianjin",
-            "nanjing", "fuzhou", "xiamen", "haikou", "wuhan", "taiyuan", "shenyang", "haerbin harbin", "changchun",
-            "xining", "guiyang", "chongqing", "shijiazhuang", "huhehaote hohhot", "lanzhou", "wulumuqi urumqi", "suzhou")
-        return all.filterIndexed { index, city ->
-            needle.isEmpty() || city.name.contains(needle) || city.adm1.contains(needle) || english[index].contains(needle)
-        }
-    }
 }

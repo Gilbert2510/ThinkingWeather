@@ -1,149 +1,180 @@
 package com.thinkingweather.android.data
 
 import com.thinkingweather.android.model.DefaultCities
-import java.net.InetAddress
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.runBlocking
+import okhttp3.Call
+import okhttp3.OkHttpClient
+import okhttp3.mockwebserver.Dispatcher
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
+import okhttp3.mockwebserver.RecordedRequest
 import okhttp3.mockwebserver.SocketPolicy
 import org.junit.Assert.*
 import org.junit.Test
 
 class WeatherNetworkTest {
-    @Test(timeout = 2000) fun physicalPhoneRejectsEmulatorAliasBeforeConnecting() = runBlocking {
-        val repository = WeatherRepository("http://10.0.2.2:8080", true, isEmulator = { false })
-        try {
-            try {
-                repository.weather(DefaultCities.beijing, false)
-                fail("An emulator-only gateway cannot be used by a physical handset")
-            } catch (error: WeatherServiceException) {
-                assertTrue(error.message.orEmpty().contains("adb reverse"))
-            }
+    @Test fun offlineServiceFailsBeforeOpeningAConnection() = runBlocking {
+        val repository = WeatherRepository("https://weather.example.invalid", hasInternet = { false })
+        try { try { repository.weather(DefaultCities.beijing); fail("Offline must be an explicit error") }
+            catch (error: WeatherOfflineException) { assertEquals("当前未连接网络", error.message) }
         } finally { repository.close() }
     }
 
-    @Test(timeout = 2000) fun offlinePublicGatewayFailsBeforeDnsOrConnection() = runBlocking {
-        val repository = WeatherRepository("https://weather.example.invalid", false, hasInternet = { false })
-        try {
-            try {
-                repository.weather(DefaultCities.beijing, false)
-                fail("A disconnected handset must fail immediately")
-            } catch (error: WeatherServiceException) {
-                assertEquals("当前未连接网络", error.message)
-            }
-            assertTrue(repository.weather(DefaultCities.beijing, true).isDemo)
-        } finally { repository.close() }
-    }
-
-    @Test(timeout = 10000) fun usbLoopbackGatewayWorksWithoutHandsetInternet() = runBlocking {
-        withGateway(hasInternet = { false }) { server, repository ->
-            server.enqueue(MockResponse().setBody("""{"now":{"temp":"13","text":"晴"}}"""))
-            assertEquals("13", repository.weather(DefaultCities.beijing, false).now.temp)
-            assertEquals("/v1/weather?location=101010100", server.takeRequest().path)
+    @Test(timeout = 10000) fun rawV1FeedsAreNormalizedAndOptionalFailureDoesNotReplaceRealWeather() = runBlocking {
+        withService(dispatch = { request -> if ("airquality" in request.path.orEmpty()) MockResponse().setResponseCode(403) else fixture(request) }) { server, repository ->
+            val result = repository.weather(DefaultCities.beijing)
+            assertEquals("13", result.now.temp)
+            assertEquals("18", result.now.windSpeed)
+            assertEquals(1, result.hourly.size)
+            assertEquals("2026-11-02", result.daily.single().fxDate)
+            assertTrue(result.partialFailures.contains("air_unavailable"))
+            assertNull(result.air)
+            assertEquals(1, result.indices.size)
+            assertEquals(6, server.requestCount)
         }
     }
 
-    @Test(timeout = 2000) fun loopbackDevelopmentNetworkPermissionIsChecked() = runBlocking {
-        val repository = WeatherRepository("http://127.0.0.1:8080", true) { false }
-        try {
-            try {
-                repository.weather(DefaultCities.beijing, false)
-                fail("Local development access must wait for permission")
-            } catch (error: WeatherServiceException) {
-                assertTrue(error.message.orEmpty().contains("附近设备权限"))
-            }
-        } finally { repository.close() }
-    }
-
-    @Test(timeout = 2000) fun deniedEmulatorNetworkPermissionFailsBeforeOpeningConnection() = runBlocking {
-        var permissionChecked = false
-        val repository = WeatherRepository("http://10.0.2.2:8080", true, isEmulator = { true }) {
-            permissionChecked = true
-            false
-        }
-        try {
-            try {
-                repository.weather(DefaultCities.beijing, false)
-                fail("Local network access must wait for permission")
-            } catch (error: WeatherServiceException) {
-                assertTrue(permissionChecked)
-                assertTrue(error.message.orEmpty().contains("附近设备权限"))
-            }
-        } finally { repository.close() }
-    }
-
-    @Test(timeout = 10000) fun liveRequestUsesGatewayContractAndPreservesPartialFailures() = runBlocking {
-        withGateway { server, repository ->
-            server.enqueue(MockResponse().setBody("""{"now":{"temp":"13","text":"晴"},"partialFailures":["air"],"fetchedAt":1793152800000}"""))
-            val snapshot = repository.weather(DefaultCities.beijing, false)
-            assertFalse(snapshot.isDemo)
-            assertEquals("13", snapshot.now.temp)
-            assertEquals(listOf("air"), snapshot.partialFailures)
-            assertEquals(1793152800000L, snapshot.fetchedAt)
-            assertEquals("/v1/weather?location=101010100", server.takeRequest().path)
-        }
-    }
-
-    @Test(timeout = 10000) fun cityCardsUseTheCurrentOnlyEndpointWithoutForecastRequests() = runBlocking {
-        withGateway { server, repository ->
-            server.enqueue(MockResponse().setBody("""{"now":{"temp":"21","text":"阴","icon":"104"},"fetchedAt":"2026-10-29T02:00:00Z"}"""))
-            val card = repository.currentSummary(DefaultCities.shanghai)
-            assertEquals("21", card.temp)
-            assertEquals(DefaultCities.shanghai.location, card.city.location)
-            assertEquals("/v1/current?location=101020100", server.takeRequest().path)
+    @Test(timeout = 10000) fun cityCardsShareOneCurrentOnlyFlightAndReuseItsCache() = runBlocking {
+        withService { server, repository ->
+            val results = (1..8).map { async(Dispatchers.IO) { repository.currentSummary(DefaultCities.beijing) } }.awaitAll()
+            assertTrue(results.all { it.temp == "13" })
+            assertEquals(1, server.requestCount)
+            assertTrue(server.takeRequest().path.orEmpty().startsWith("/weather/v1/current/39.90/116.41?"))
+            repository.currentSummary(DefaultCities.beijing)
             assertEquals(1, server.requestCount)
         }
     }
 
-    @Test(timeout = 10000) fun failedLiveServiceNeverFallsBackToDemoAndDoesNotExposeServerBody() = runBlocking {
-        withGateway { server, repository ->
-            server.enqueue(MockResponse().setResponseCode(503).setBody("private-upstream-diagnostic"))
-            try {
-                repository.weather(DefaultCities.beijing, false)
-                fail("Live failure must remain an error")
-            } catch (error: WeatherServiceException) {
-                assertFalse(error.message.orEmpty().contains("private-upstream-diagnostic"))
+    @Test(timeout = 10000) fun HTTP429StopsOtherResourcesAndHonorsRetryAfter() = runBlocking {
+        val clock = AtomicLong(1_800_000_000_000)
+        val limited = AtomicInteger()
+        withService(clock = clock, dispatch = { request -> if (limited.getAndIncrement() == 0) MockResponse().setResponseCode(429).setHeader("Retry-After", "60") else fixture(request) }) { server, repository ->
+            try { repository.weather(DefaultCities.beijing); fail("429 must be explicit") } catch (error: WeatherHttpException) { assertEquals(429, error.status) }
+            try { repository.currentSummary(DefaultCities.shanghai); fail("Shared cooldown must block new resources") } catch (error: WeatherHttpException) { assertEquals(429, error.status) }
+            assertEquals(1, server.requestCount)
+            clock.addAndGet(60_001)
+            assertEquals("13", repository.currentSummary(DefaultCities.shanghai).temp)
+            assertEquals(2, server.requestCount)
+        }
+    }
+
+    @Test(timeout = 10000) fun business429InsideHTTP200IsNotTreatedAsWeather() = runBlocking {
+        withService(dispatch = { MockResponse().setBody("""{"code":"429","now":{"temp":"25"}}""") }) { server, repository ->
+            try { repository.weather(DefaultCities.beijing); fail("Provider business errors must be inspected") } catch (error: WeatherHttpException) { assertEquals(429, error.status) }
+            assertEquals(1, server.requestCount)
+        }
+    }
+
+    @Test(timeout = 10000) fun v1PlanCompatibilityCanUseV7WithoutRetryingOnRateLimits() = runBlocking {
+        withService(dispatch = { request -> if ("/weather/v1/current/" in request.path.orEmpty()) MockResponse().setResponseCode(403)
+            else if (request.requestUrl?.encodedPath == "/v7/weather/now") MockResponse().setBody("""{"code":"200","now":{"temp":"21","text":"阴"}}""") else fixture(request) }) { server, repository ->
+            assertEquals("21", repository.currentSummary(DefaultCities.beijing).temp)
+            assertEquals("21", repository.currentSummary(DefaultCities.beijing).temp)
+            assertEquals(2, server.requestCount)
+        }
+    }
+
+    @Test(timeout = 10000) fun failedExpiredResourceCanUseOnlyBoundedStaleData() = runBlocking {
+        val clock = AtomicLong(1_800_000_000_000)
+        val count = AtomicInteger()
+        withService(clock = clock, dispatch = { request -> if (count.getAndIncrement() == 0) fixture(request) else MockResponse().setResponseCode(503) }) { _, repository ->
+            val fresh = repository.currentSummary(DefaultCities.beijing)
+            clock.addAndGet(120_001)
+            val stale = repository.currentSummary(DefaultCities.beijing)
+            assertTrue(stale.isStale)
+            assertEquals(fresh.fetchedAt, stale.fetchedAt)
+            clock.addAndGet(900_001)
+            try { repository.currentSummary(DefaultCities.beijing); fail("Old observations must expire") } catch (error: WeatherHttpException) { assertEquals(503, error.status) }
+        }
+    }
+
+    @Test(timeout = 10000) fun serverAgePreservesTheActualFetchAge() = runBlocking {
+        val clock = AtomicLong(1_800_000_000_000)
+        withService(clock = clock, dispatch = { request -> fixture(request).setHeader("Age", "60") }) { _, repository ->
+            assertEquals(clock.get() - 60_000, repository.currentSummary(DefaultCities.beijing).fetchedAt)
+        }
+    }
+
+    @Test(timeout = 10000) fun cityQueryIsEncodedAndAdministrativeNameIsCompleted() = runBlocking {
+        withService { server, repository ->
+            assertEquals("沙坪坝区", repository.search("沙坪坝").single().name)
+            val request = server.takeRequest()
+            assertEquals("/geo/v2/city/lookup", request.requestUrl?.encodedPath)
+            assertEquals("沙坪坝", request.requestUrl?.queryParameter("location"))
+            assertNull(request.getHeader("X-QW-Api-Key"))
+        }
+    }
+
+    @Test(timeout = 10000) fun noCityMatchAndPrivateDiagnosticsStaySeparate() = runBlocking {
+        withService(dispatch = { MockResponse().setBody("""{"code":"404","private":"private-diagnostic"}""") }) { _, repository ->
+            assertTrue(repository.search("UnknownCity").isEmpty())
+            try { repository.currentSummary(DefaultCities.beijing); fail("Missing current is an error") } catch (error: WeatherHttpException) {
+                assertFalse(error.message.orEmpty().contains("private-diagnostic"))
             }
         }
     }
 
-    @Test(timeout = 10000) fun coroutineCancellationStopsAnInFlightRequest() = runBlocking {
-        withGateway { server, repository ->
-            server.enqueue(MockResponse().setSocketPolicy(SocketPolicy.NO_RESPONSE))
-            val pending = async(Dispatchers.IO) { repository.weather(DefaultCities.beijing, false) }
+    @Test(timeout = 10000) fun cancellationClosesTheCallAndDoesNotPoisonTheNextFlight() = runBlocking {
+        val count = AtomicInteger()
+        withService(dispatch = { request -> if (count.getAndIncrement() == 0) MockResponse().setSocketPolicy(SocketPolicy.NO_RESPONSE) else fixture(request) }) { server, repository ->
+            val pending = async(Dispatchers.IO) { repository.currentSummary(DefaultCities.beijing) }
             assertNotNull(server.takeRequest(3, TimeUnit.SECONDS))
             pending.cancelAndJoin()
-            assertTrue(pending.isCancelled)
-            server.enqueue(MockResponse().setBody("""{"now":{"temp":"21"}}"""))
-            assertEquals("21", repository.weather(DefaultCities.shanghai, false).now.temp)
+            assertEquals("13", repository.currentSummary(DefaultCities.beijing).temp)
         }
     }
 
-    @Test(timeout = 10000) fun cityQueryIsEncodedAndParsed() = runBlocking {
-        withGateway { server, repository ->
-            server.enqueue(MockResponse().setBody("""{"location":[{"id":"101210101","name":"杭州"}]}"""))
-            assertEquals("杭州", repository.search("杭州", false).single().name)
-            val request = server.takeRequest()
-            assertEquals("杭州", request.requestUrl?.queryParameter("q"))
-            assertEquals("/v1/cities", request.requestUrl?.encodedPath)
+    @Test(timeout = 10000) fun simultaneousSnapshotsNeverExceedTwoNetworkRequests() = runBlocking {
+        val active = AtomicInteger(); val peak = AtomicInteger()
+        withService(dispatch = { request ->
+            val current = active.incrementAndGet(); peak.updateAndGet { maxOf(it, current) }
+            try { Thread.sleep(30); fixture(request) } finally { active.decrementAndGet() }
+        }) { _, repository ->
+            listOf(DefaultCities.beijing, DefaultCities.shanghai, DefaultCities.hangzhou).map { async(Dispatchers.IO) { repository.weather(it) } }.awaitAll()
+            assertTrue(peak.get() <= 2)
         }
     }
 
-    private suspend fun withGateway(hasInternet: () -> Boolean = { true }, block: suspend (MockWebServer, WeatherRepository) -> Unit) {
+    private suspend fun withService(
+        clock: AtomicLong = AtomicLong(java.time.Instant.parse("2026-11-02T04:00:00Z").toEpochMilli()), dispatch: (RecordedRequest) -> MockResponse = ::fixture,
+        block: suspend (MockWebServer, WeatherRepository) -> Unit,
+    ) {
         val server = MockWebServer()
-        var repository: WeatherRepository? = null
-        try {
-            server.start(InetAddress.getByName("127.0.0.1"), 0)
-            val baseUrl = server.url("/").newBuilder().host("127.0.0.1").build().toString()
-            val activeRepository = WeatherRepository(baseUrl, true, hasInternet = hasInternet)
-            repository = activeRepository
-            block(server, activeRepository)
-        } finally {
-            try { repository?.close() } finally { server.shutdown() }
+        val client = OkHttpClient.Builder().build()
+        val handler = dispatch
+        server.dispatcher = object : Dispatcher() { override fun dispatch(request: RecordedRequest) = handler(request) }
+        server.start()
+        // Test source only: production still validates and constructs HTTPS URLs with no loopback exception.
+        val factory = Call.Factory { request -> client.newCall(request.newBuilder().url(request.url.newBuilder()
+            .scheme("http").host(server.hostName).port(server.port).build()).build()) }
+        val repository = WeatherRepository("https://relay.example.invalid", callFactory = factory, timeMillis = clock::get)
+        try { block(server, repository) } finally {
+            repository.close(); client.dispatcher.cancelAll(); client.connectionPool.evictAll(); client.dispatcher.executorService.shutdown(); server.shutdown()
         }
+    }
+
+    companion object {
+        private fun fixture(request: RecordedRequest): MockResponse {
+            val path = request.requestUrl?.encodedPath.orEmpty()
+            val body = when {
+                "/weather/v1/current/" in path -> CURRENT
+                "/weather/v1/hourly/" in path -> """{"hours":[{"forecastTime":"2026-11-02T12:00:00+08:00","temperature":{"value":14,"unit":"°C"}}]}"""
+                "/weather/v1/daily/" in path -> """{"days":[{"forecastStartTime":"2026-11-02T00:00:00+08:00","temperatureMax":{"value":20,"unit":"°C"},"temperatureMin":{"value":10,"unit":"°C"}}]}"""
+                "/airquality/" in path -> """{"indexes":[{"code":"cn-mee","aqiDisplay":"30","category":"优"}]}"""
+                "/weatheralert/" in path -> """{"metadata":{"zeroResult":true},"alerts":[]}"""
+                path == "/v7/indices/1d" -> """{"code":"200","daily":[{"date":"2026-11-02","type":"3","name":"穿衣指数","level":"2","category":"较冷","text":"适当添加衣物"}]}"""
+                path == "/geo/v2/city/lookup" -> """{"code":"200","location":[{"id":"101040106","name":"沙坪坝","adm1":"重庆市","adm2":"重庆","lat":"29.54","lon":"106.45"}]}"""
+                else -> """{"code":"404"}"""
+            }
+            return MockResponse().setHeader("Content-Type", "application/json").setBody(body)
+        }
+        private const val CURRENT = """{"temperature":{"value":13,"unit":"°C"},"wind":{"speed":{"value":5,"unit":"m/s"}},"condition":{"text":"晴","code":"100"}}"""
     }
 }

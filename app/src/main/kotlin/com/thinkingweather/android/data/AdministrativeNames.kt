@@ -1,7 +1,7 @@
-package com.thinkingweather.gateway
+package com.thinkingweather.android.data
 
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
+import org.json.JSONObject
+
 
 /** Completes known Chinese county names; provider identity and coordinates remain untouched. */
 internal object AdministrativeNames {
@@ -48,14 +48,12 @@ internal object AdministrativeNames {
         return if (suffix == null) trimmed else trimmed.removeSuffix(suffix)
     }
 
-    fun enrich(location: JsonObject): JsonObject {
-        val original = location.text("name")?.trim().orEmpty()
-        val fullName = complete(original, location.text("adm1").orEmpty(), location.text("adm2").orEmpty(), location.text("country").orEmpty())
-        return if (fullName == original || original.isBlank()) location else JsonObject(location + mapOf(
-            "name" to JsonPrimitive(fullName), "originalName" to JsonPrimitive(original),
-        ))
+    fun enrich(location: JSONObject): JSONObject {
+        val original = location.optString("name").trim()
+        val fullName = complete(original, location.optString("adm1"), location.optString("adm2"), location.optString("country"))
+        return if (fullName == original || original.isBlank()) location else JSONObject(location.toString())
+            .put("name", fullName).put("originalName", original)
     }
-
     internal fun complete(name: String, province: String, parent: String, country: String = "中国"): String {
         if (name.isBlank() || province.isBlank() || country.isNotBlank() && country.lowercase() !in setOf("中国", "china", "cn", "chn")) return name
         val provinceStem = stem(province)

@@ -4,7 +4,6 @@ import android.content.Context
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.stringPreferencesKey
-import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.thinkingweather.android.model.*
 import java.io.IOException
@@ -18,21 +17,29 @@ internal data class SavedWeatherState(
     val cities: List<City>,
     val selectedCity: City,
     val unit: TemperatureUnit,
-    val isDemo: Boolean,
     val locatedCityLocation: String? = null,
 )
 
-/** DataStore atomically persists settings and a small, mode-separated offline cache. */
-internal class WeatherStore(context: Context, private val configured: Boolean) {
+/** Persistence boundary shared by production DataStore and isolated test memory stores. */
+internal interface WeatherPreferences {
+    suspend fun read(): SavedWeatherState
+    suspend fun setCities(cities: List<City>, selected: City, locatedCityLocation: String?)
+    suspend fun setUnit(unit: TemperatureUnit)
+    suspend fun cached(city: City): WeatherSnapshot?
+    suspend fun cachedAll(): List<WeatherSnapshot>
+    suspend fun save(snapshot: WeatherSnapshot)
+}
+
+/** DataStore atomically persists preferences and a bounded real-weather cache. */
+internal class WeatherStore(context: Context) : WeatherPreferences {
     private val store = context.applicationContext.weatherPreferences
     private val citiesKey = stringPreferencesKey("cities")
     private val selectedKey = stringPreferencesKey("selected_city")
     private val unitKey = stringPreferencesKey("temperature_unit")
-    private val demoKey = booleanPreferencesKey("demo_mode")
     private val cacheKey = stringPreferencesKey("weather_cache")
     private val locatedCityKey = stringPreferencesKey("located_city")
 
-    suspend fun read(): SavedWeatherState {
+    override suspend fun read(): SavedWeatherState {
         val prefs = store.data.catch { error -> if (error is IOException) emit(emptyPreferences()) else throw error }.first()
         val cities = runCatching {
             val list = JSONArray(prefs[citiesKey] ?: "[]")
@@ -40,21 +47,11 @@ internal class WeatherStore(context: Context, private val configured: Boolean) {
         }.getOrDefault(emptyList()).ifEmpty { DefaultCities.initial }
         return SavedWeatherState(cities, cities.firstOrNull { it.location == prefs[selectedKey] } ?: cities.first(),
             runCatching { TemperatureUnit.valueOf(prefs[unitKey].orEmpty()) }.getOrDefault(TemperatureUnit.CELSIUS),
-            prefs[demoKey] ?: !configured,
             prefs[locatedCityKey]?.takeIf { key -> cities.any { it.location == key } })
     }
 
-    suspend fun setCities(cities: List<City>, selected: City) {
-        store.edit { prefs ->
-            val normalized = normalizeSavedCities(cities)
-            prefs[citiesKey] = JSONArray().apply { normalized.forEach { put(WeatherJson.encodeCity(it)) } }.toString()
-            prefs[selectedKey] = selected.location
-            if (normalized.none { it.location == prefs[locatedCityKey] }) prefs.remove(locatedCityKey)
-        }
-    }
-
     /** Persist selection and the last resolved city in one transaction; no delayed marker-only write. */
-    suspend fun setCities(cities: List<City>, selected: City, locatedCityLocation: String?) {
+    override suspend fun setCities(cities: List<City>, selected: City, locatedCityLocation: String?) {
         store.edit { prefs ->
             val normalized = normalizeSavedCities(cities)
             prefs[citiesKey] = JSONArray().apply { normalized.forEach { put(WeatherJson.encodeCity(it)) } }.toString()
@@ -65,29 +62,23 @@ internal class WeatherStore(context: Context, private val configured: Boolean) {
         }
     }
 
-    suspend fun setUnit(unit: TemperatureUnit) { store.edit { it[unitKey] = unit.name } }
-    suspend fun setDemo(enabled: Boolean) { store.edit { it[demoKey] = enabled } }
+    override suspend fun setUnit(unit: TemperatureUnit) { store.edit { it[unitKey] = unit.name } }
 
-    /** Only the last resolved city identity is kept; no location history is stored. */
-    suspend fun setLocatedCity(location: String?) {
-        store.edit { prefs -> if (location == null) prefs.remove(locatedCityKey) else prefs[locatedCityKey] = location }
-    }
-
-    suspend fun cached(city: City, isDemo: Boolean): WeatherSnapshot? {
+    override suspend fun cached(city: City): WeatherSnapshot? {
         val prefs = store.data.catch { error -> if (error is IOException) emit(emptyPreferences()) else throw error }.first()
-        return decodeCache(prefs[cacheKey]).firstOrNull { it.city.location == city.location && it.isDemo == isDemo }
+        return decodeCache(prefs[cacheKey]).firstOrNull { it.city.location == city.location }
     }
 
     /** City cards warm their cache in one read/parse, rather than once for every saved city. */
-    suspend fun cachedAll(isDemo: Boolean): List<WeatherSnapshot> {
+    override suspend fun cachedAll(): List<WeatherSnapshot> {
         val prefs = store.data.catch { error -> if (error is IOException) emit(emptyPreferences()) else throw error }.first()
-        return decodeCache(prefs[cacheKey]).filter { it.isDemo == isDemo }
+        return decodeCache(prefs[cacheKey])
     }
 
-    suspend fun save(snapshot: WeatherSnapshot) {
+    override suspend fun save(snapshot: WeatherSnapshot) {
         store.edit { prefs ->
             val snapshots = (listOf(snapshot) + decodeCache(prefs[cacheKey]))
-                .distinctBy { "${it.isDemo}:${it.city.location}" }.take(MAX_CACHED_CITIES)
+                .distinctBy { it.city.location }.take(MAX_CACHED_CITIES)
             prefs[cacheKey] = JSONArray().apply { snapshots.forEach { put(WeatherJson.encodeSnapshot(it)) } }.toString()
         }
     }
@@ -101,7 +92,6 @@ internal class WeatherStore(context: Context, private val configured: Boolean) {
 
     companion object {
         const val MAX_CITIES = MAX_SAVED_CITIES
-        // At most 30 live and 30 local scenes can coexist without one mode evicting the other immediately.
-        const val MAX_CACHED_CITIES = MAX_CITIES * 2
+        const val MAX_CACHED_CITIES = MAX_CITIES
     }
 }

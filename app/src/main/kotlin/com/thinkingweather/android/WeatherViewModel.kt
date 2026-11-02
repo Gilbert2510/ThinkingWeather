@@ -5,7 +5,6 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.thinkingweather.android.data.*
 import com.thinkingweather.android.model.*
-import com.thinkingweather.android.network.DevelopmentGateway
 import com.thinkingweather.android.network.NetworkMonitor
 import java.io.IOException
 import java.net.SocketTimeoutException
@@ -37,8 +36,6 @@ data class WeatherUiState(
     val searchResults: List<City> = emptyList(),
     val isSearching: Boolean = false,
     val temperatureUnit: TemperatureUnit = TemperatureUnit.CELSIUS,
-    val isDemo: Boolean = false,
-    val backendConfigured: Boolean = false,
     val lastLocationMessage: String? = null,
     val locatedCityLocation: String? = null,
     val cityEditMessage: String? = null,
@@ -51,26 +48,17 @@ data class WeatherUiState(
     val settingsLoaded: Boolean = false,
 )
 
-class WeatherViewModel(application: Application) : AndroidViewModel(application) {
-    private val repositoryResult = runCatching {
-        WeatherRepository(BuildConfig.WEATHER_BASE_URL, BuildConfig.DEBUG,
-            isEmulator = {
-                DevelopmentGateway.isEmulator(android.os.Build.FINGERPRINT, android.os.Build.MODEL,
-                    android.os.Build.HARDWARE, android.os.Build.PRODUCT)
-            },
-            hasInternet = { NetworkMonitor.hasInternet(application) },
-        ) {
-            android.os.Build.VERSION.SDK_INT < 37 ||
-                androidx.core.content.ContextCompat.checkSelfPermission(
-                    application, "android.permission.ACCESS_LOCAL_NETWORK"
-                ) == android.content.pm.PackageManager.PERMISSION_GRANTED
-        }
-    }
-    private val repository = repositoryResult.getOrElse { WeatherRepository("", BuildConfig.DEBUG) }
-    private val store = WeatherStore(application, BuildConfig.WEATHER_BASE_URL.isNotBlank())
-    private val summaryStore = CitySummaryStore(application)
-    private val mutableState = MutableStateFlow(WeatherUiState(isDemo = BuildConfig.WEATHER_BASE_URL.isBlank(),
-        backendConfigured = repository.configured))
+class WeatherViewModel internal constructor(
+    application: Application,
+    private val repository: WeatherDataSource,
+    private val store: WeatherPreferences,
+    private val summaryStore: CitySummaryCache,
+) : AndroidViewModel(application) {
+    constructor(application: Application) : this(application,
+        WeatherRepository(BuildConfig.WEATHER_BASE_URL, hasInternet = { NetworkMonitor.hasInternet(application) }),
+        WeatherStore(application), CitySummaryStore(application))
+
+    private val mutableState = MutableStateFlow(WeatherUiState())
     val uiState: StateFlow<WeatherUiState> = mutableState.asStateFlow()
     private val settingsReady = CompletableDeferred<Unit>()
     private var weatherJob: Job? = null
@@ -83,28 +71,22 @@ class WeatherViewModel(application: Application) : AndroidViewModel(application)
     private var summaryCacheLoaded = false
     private var weatherGeneration = 0L
     private val persistenceMutex = Mutex()
-    // Preview browsing never replaces or persists the user's real favourites.
-    private var liveCities = DefaultCities.initial
-    private var liveSelection = DefaultCities.beijing
-    private var demoSelection = DefaultCities.beijing
+    private var storedCities = DefaultCities.initial
 
     init {
         viewModelScope.launch {
             try {
                 val saved = withContext(Dispatchers.IO) { store.read() }
-                liveCities = saved.cities
-                liveSelection = saved.selectedCity
-                demoSelection = DefaultCities.demoCatalog.firstOrNull { it.location == saved.selectedCity.location }
-                    ?: DefaultCities.beijing
+                storedCities = saved.cities
                 mutableState.update { it.copy(
-                    cities = if (saved.isDemo) DefaultCities.demoCatalog else liveCities,
-                    selectedCity = if (saved.isDemo) demoSelection else liveSelection,
-                    temperatureUnit = saved.unit, isDemo = saved.isDemo,
+                    cities = storedCities,
+                    selectedCity = saved.selectedCity,
+                    temperatureUnit = saved.unit,
                     locatedCityLocation = saved.locatedCityLocation) }
             } catch (error: Exception) {
                 if (error is CancellationException) throw error
                 mutableState.update { it.copy(
-                    cities = if (it.isDemo) DefaultCities.demoCatalog else liveCities,
+                    cities = storedCities,
                     errorMessage = "无法读取本地设置，将使用默认设置。") }
             } finally {
                 mutableState.update { it.copy(settingsLoaded = true) }
@@ -122,18 +104,9 @@ class WeatherViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
-    /** Location calls this in its own job, so a new lookup, manual selection or mode change cancels it. */
+    /** Location calls this in its own job, so a new lookup or manual selection cancels it. */
     private suspend fun selectCityAndPersist(city: City, fromLocation: Boolean) {
         val current = mutableState.value
-        if (current.isDemo) {
-            if (fromLocation) return
-            if (current.selectedCity.location == city.location && (current.snapshot != null || weatherJob?.isActive == true)) return
-            val scenarioCity = DefaultCities.demoCatalog.firstOrNull { it.location == city.location } ?: return
-            demoSelection = scenarioCity
-            mutableState.update { it.copy(selectedCity = scenarioCity, snapshot = null, errorMessage = null) }
-            loadWeather(force = false)
-            return
-        }
         val cities = if (current.cities.any { it.location == city.location })
             current.cities.map { if (it.location == city.location) city else it } else
             (current.cities + city).take(WeatherStore.MAX_CITIES)
@@ -143,8 +116,7 @@ class WeatherViewModel(application: Application) : AndroidViewModel(application)
         }
         val reuseWeather = current.selectedCity.location == city.location && (current.snapshot != null || weatherJob?.isActive == true)
         if (reuseWeather && city == current.selectedCity && cities == current.cities && !fromLocation) return
-        liveCities = cities
-        liveSelection = city
+        storedCities = cities
         // Publish selection, marker and success message together, before the first persistence await.
         // Finishing older I/O never writes location UI again.
         mutableState.update { state -> state.copy(cities = cities, selectedCity = city, errorMessage = null,
@@ -168,7 +140,6 @@ class WeatherViewModel(application: Application) : AndroidViewModel(application)
         viewModelScope.launch {
             settingsReady.await()
             val current = mutableState.value
-            if (current.isDemo) return@launch
             val plan = planCityRemoval(current.cities, locations, current.selectedCity)
             if (plan.blocked) {
                 mutableState.update { it.copy(cityEditMessage = "请至少保留一个城市。") }
@@ -179,8 +150,7 @@ class WeatherViewModel(application: Application) : AndroidViewModel(application)
             val selection = plan.selectedCity
             val selectionChanged = current.selectedCity.location != selection.location
             if (selectionChanged) cancelLocationLookup()
-            liveCities = cities
-            liveSelection = selection
+            storedCities = cities
             cancelSummaryRefresh()
             mutableState.update { it.copy(cities = cities, selectedCity = selection,
                 snapshot = if (selectionChanged) null else it.snapshot, errorMessage = null, cityEditMessage = null,
@@ -198,10 +168,9 @@ class WeatherViewModel(application: Application) : AndroidViewModel(application)
         viewModelScope.launch {
             settingsReady.await()
             val current = mutableState.value
-            if (current.isDemo) return@launch
             val cities = orderedSavedCities(current.cities, locations)
             if (cities == current.cities) return@launch
-            liveCities = cities
+            storedCities = cities
             mutableState.update { it.copy(cities = cities) }
             persistCities(cities, current.selectedCity)
         }
@@ -223,7 +192,6 @@ class WeatherViewModel(application: Application) : AndroidViewModel(application)
         viewModelScope.launch {
             settingsReady.await()
             loadWeather(force = true)
-            // The activity also calls refresh after granting local-network access.
             if (citiesPageOpen) { cancelSummaryRefresh(); refreshCitySummaries() }
         }
     }
@@ -232,14 +200,11 @@ class WeatherViewModel(application: Application) : AndroidViewModel(application)
         weatherJob?.cancel()
         val generation = ++weatherGeneration
         val city = mutableState.value.selectedCity
-        val demo = mutableState.value.isDemo
         mutableState.update { it.copy(isLoading = it.snapshot == null, isRefreshing = it.snapshot != null, errorMessage = null) }
         weatherJob = viewModelScope.launch {
             try {
-                // Preview scenarios are cheap and fixed. Never reuse old generated
-                // preview caches that may predate the current city/weather mapping.
-                val cached = if (demo || (force && mutableState.value.snapshot != null)) null
-                    else withContext(Dispatchers.IO) { store.cached(city, false) }
+                val cached = if (force && mutableState.value.snapshot != null) null
+                    else withContext(Dispatchers.IO) { store.cached(city) }
                 if (generation != weatherGeneration) return@launch
                 if (cached != null) {
                     // Persisted live data is provisional until the gateway confirms its current feeds.
@@ -247,14 +212,13 @@ class WeatherViewModel(application: Application) : AndroidViewModel(application)
                     mutableState.update { it.copy(snapshot = displayed.copy(city = it.selectedCity), isLoading = false, isRefreshing = true) }
                     rememberSummary(CityWeatherSummary.from(displayed))
                 }
-                if (!demo) repositoryResult.exceptionOrNull()?.let { throw it }
-                val received = repository.weather(city, demo)
+                val received = repository.weather(city)
                 if (generation != weatherGeneration) return@launch
                 val snapshot = received.copy(city = mutableState.value.selectedCity)
                 mutableState.update { it.copy(snapshot = snapshot, isLoading = false, errorMessage = null) }
-                if (!demo) rememberSummary(CityWeatherSummary.from(snapshot))
+                rememberSummary(CityWeatherSummary.from(snapshot))
                 try {
-                    if (!demo) withContext(Dispatchers.IO) { store.save(snapshot) }
+                    withContext(Dispatchers.IO) { store.save(snapshot) }
                 } catch (storageError: Exception) {
                     if (storageError is CancellationException) throw storageError
                     if (generation == weatherGeneration) mutableState.update {
@@ -281,28 +245,26 @@ class WeatherViewModel(application: Application) : AndroidViewModel(application)
         if (trimmed.isBlank()) return
         searchJob = viewModelScope.launch {
             settingsReady.await()
-            val demo = mutableState.value.isDemo
-            val savedMatches = if (demo) emptyList() else liveCities.filter {
+            val savedMatches = storedCities.filter {
                 it.name.contains(trimmed, ignoreCase = true) || it.description.contains(trimmed, ignoreCase = true)
             }
-            if (!demo && repository.networkUnavailable) {
+            if (repository.networkUnavailable) {
                 mutableState.update { it.copy(isSearching = false, searchResults = savedMatches,
                     searchErrorMessage = "天气服务不可用，请稍后重试", searchErrorIsOffline = true) }
                 return@launch
             }
-            if (!demo && shouldWaitForLongerCityQuery(trimmed)) {
+            if (shouldWaitForLongerCityQuery(trimmed)) {
                 mutableState.update { it.copy(isSearching = false, searchResults = savedMatches,
                     searchHint = "请继续输入拼音或城市名称") }
                 return@launch
             }
             delay(350)
             try {
-                if (!demo) repositoryResult.exceptionOrNull()?.let { throw it }
-                val cities = repository.search(trimmed, demo)
+                val cities = repository.search(trimmed)
                 mutableState.update { it.copy(searchResults = cities, isSearching = false) }
             } catch (error: Exception) {
                 if (error is CancellationException) throw error
-                val notice = citySearchNotice(error, !demo && repository.networkUnavailable)
+                val notice = citySearchNotice(error, repository.networkUnavailable)
                 mutableState.update { it.copy(isSearching = false, searchResults = savedMatches,
                     searchErrorMessage = notice.message, searchErrorIsOffline = notice.offline) }
             }
@@ -325,7 +287,7 @@ class WeatherViewModel(application: Application) : AndroidViewModel(application)
         val generation = ++citySummaryGeneration
         citySummaryJob = viewModelScope.launch {
             settingsReady.await()
-            if (mutableState.value.isDemo || !citiesPageOpen) return@launch
+            if (!citiesPageOpen) return@launch
             try {
                 if (!summaryCacheLoaded) {
                     val cards = try { withContext(Dispatchers.IO) { summaryStore.read() } }
@@ -338,26 +300,25 @@ class WeatherViewModel(application: Application) : AndroidViewModel(application)
                     summaryCacheLoaded = true
                 }
                 // A full cached forecast may be the only offline observation available.
-                if (liveCities.any { mutableState.value.citySummaries[it.location] == null }) {
-                    val cached = withContext(Dispatchers.IO) { store.cachedAll(false) }
+                if (storedCities.any { mutableState.value.citySummaries[it.location] == null }) {
+                    val cached = withContext(Dispatchers.IO) { store.cachedAll() }
                     if (!canApplySummary(generation)) return@launch
                     cached.forEach { rememberSummary(CityWeatherSummary.from(it), persist = false) }
                 }
-                mutableState.value.snapshot?.takeUnless { it.isDemo }?.let {
+                mutableState.value.snapshot?.let {
                     rememberSummary(CityWeatherSummary.from(it), persist = false)
                 }
                 val now = System.currentTimeMillis()
-                val pending = liveCities.filter { mutableState.value.citySummaries[it.location]?.isFresh(now) != true }
+                val pending = storedCities.filter { mutableState.value.citySummaries[it.location]?.isFresh(now) != true }
                 val keys = pending.map(City::location).toSet()
                 mutableState.update { state -> state.copy(
                     citySummaries = state.citySummaries.mapValues { (_, value) ->
                         if (value.isFresh(now)) value else value.copy(isStale = true)
                     }, loadingCitySummaries = keys, citySummaryErrors = state.citySummaryErrors - keys,
                 ) }
-                if (pending.isEmpty() || repository.networkUnavailable || !repository.configured) return@launch
-                repositoryResult.exceptionOrNull()?.let { throw it }
+                if (pending.isEmpty() || repository.networkUnavailable) return@launch
                 CitySummaryLoader(repository::currentSummary).load(pending) { city, result ->
-                    if (canApplySummary(generation) && liveCities.any { it.location == city.location }) {
+                    if (canApplySummary(generation) && storedCities.any { it.location == city.location }) {
                         result.onSuccess { rememberSummary(it) }
                         mutableState.update { state -> state.copy(
                             loadingCitySummaries = state.loadingCitySummaries - city.location,
@@ -378,7 +339,7 @@ class WeatherViewModel(application: Application) : AndroidViewModel(application)
     }
 
     private fun canApplySummary(generation: Long): Boolean =
-        generation == citySummaryGeneration && citiesPageOpen && !mutableState.value.isDemo
+        generation == citySummaryGeneration && citiesPageOpen
 
     private fun cancelSummaryRefresh() {
         ++citySummaryGeneration
@@ -387,7 +348,7 @@ class WeatherViewModel(application: Application) : AndroidViewModel(application)
     }
 
     private fun rememberSummary(summary: CityWeatherSummary, persist: Boolean = true) {
-        val canonicalCity = liveCities.firstOrNull { it.location == summary.city.location } ?: return
+        val canonicalCity = storedCities.firstOrNull { it.location == summary.city.location } ?: return
         val existing = mutableState.value.citySummaries[summary.city.location]
         if (existing != null && (existing.fetchedAt > summary.fetchedAt ||
                 (existing.fetchedAt == summary.fetchedAt && !existing.isStale && summary.isStale))) return
@@ -399,7 +360,7 @@ class WeatherViewModel(application: Application) : AndroidViewModel(application)
         summaryPersistJob?.cancel()
         summaryPersistJob = viewModelScope.launch {
             delay(250)
-            val allowed = liveCities.map(City::location).toSet()
+            val allowed = storedCities.map(City::location).toSet()
             val cards = mutableState.value.citySummaries.filterKeys { it in allowed }.values.toList()
             try { persistenceMutex.withLock { withContext(Dispatchers.IO) { summaryStore.save(cards) } } }
             catch (error: Exception) { if (error is CancellationException) throw error }
@@ -414,30 +375,6 @@ class WeatherViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
-    fun setDemoMode(enabled: Boolean) {
-        viewModelScope.launch {
-            settingsReady.await()
-            if (!enabled && !repository.configured) {
-                mutableState.update { it.copy(errorMessage = "尚未配置天气服务。请按 README 设置 WEATHER_BASE_URL 后重新构建。") }
-                return@launch
-            }
-            if (enabled == mutableState.value.isDemo) return@launch
-            cancelLocationLookup()
-            searchJob?.cancel()
-            cancelSummaryRefresh()
-            mutableState.update { it.copy(isDemo = enabled,
-                cities = if (enabled) DefaultCities.demoCatalog else liveCities,
-                selectedCity = if (enabled) demoSelection else liveSelection,
-                snapshot = null, searchResults = emptyList(),
-                isSearching = false, searchErrorMessage = null, searchErrorIsOffline = false, searchHint = null,
-                lastLocationMessage = null, errorMessage = null) }
-            loadWeather(force = false)
-            setSearchQuery(mutableState.value.searchQuery)
-            persist { store.setDemo(enabled) }
-            if (citiesPageOpen && !enabled) refreshCitySummaries()
-        }
-    }
-
     /** Foreground location only. The activity owns permission and sensor acquisition. */
     fun useLocation(latitude: Double, longitude: Double) {
         if (!latitude.isFinite() || !longitude.isFinite() || latitude !in -90.0..90.0 || longitude !in -180.0..180.0) {
@@ -447,18 +384,13 @@ class WeatherViewModel(application: Application) : AndroidViewModel(application)
         locationJob?.cancel()
         locationJob = viewModelScope.launch {
             settingsReady.await()
-            if (mutableState.value.isDemo) {
-                mutableState.update { it.copy(lastLocationMessage = "演示模式不使用真实位置，请手动选择演示城市。") }
-                return@launch
-            }
             mutableState.update { it.copy(lastLocationMessage = "正在识别当前位置…") }
             try {
-                repositoryResult.exceptionOrNull()?.let { throw it }
                 val coordinates = String.format(Locale.ROOT, "%.2f,%.2f", longitude, latitude)
-                val city = repository.search(coordinates, isDemo = false).firstOrNull()
+                val city = repository.search(coordinates).firstOrNull()
                     ?: City(coordinates, "当前位置", lat = String.format(Locale.ROOT, "%.2f", latitude),
                         lon = String.format(Locale.ROOT, "%.2f", longitude))
-                if (liveCities.none { it.location == city.location } && liveCities.size >= WeatherStore.MAX_CITIES) {
+                if (storedCities.none { it.location == city.location } && storedCities.size >= WeatherStore.MAX_CITIES) {
                     mutableState.update { it.copy(lastLocationMessage = "已达到 ${WeatherStore.MAX_CITIES} 个城市，请先删除一座再使用定位。") }
                     return@launch
                 }
@@ -474,12 +406,6 @@ class WeatherViewModel(application: Application) : AndroidViewModel(application)
         cancelLocationLookup()
         mutableState.update { it.copy(lastLocationMessage = message) }
     }
-    fun reportServiceAccessDenied(message: String) {
-        weatherJob?.cancel()
-        ++weatherGeneration
-        mutableState.update { it.copy(isLoading = false, isRefreshing = false, errorMessage = message) }
-    }
-
     private suspend fun persistCities(cities: List<City>, selected: City) {
         // Capture at enqueue time. The same mutex/transaction writes cities and their marker,
         // so a later removal or location result is never overwritten by a separate old marker write.

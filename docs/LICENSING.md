@@ -23,7 +23,7 @@ Apache 2.0 允许按条款使用、修改和分发源码及二进制，并包含
 | 测试依赖 | AndroidX Test | Apache-2.0 |
 | 测试依赖 | JUnit 4.13.2 | Eclipse Public License 1.0 |
 | 测试依赖 | JSON-java 20250517 | Public Domain |
-| 后端显示名资源 | uiwjs/province-city-china 派生行政名称表 | MIT |
+| 客户端显示名资源 | uiwjs/province-city-china 派生行政名称表 | MIT |
 
 JUnit 和 JSON-java 位于 testImplementation，不作为运行时天气引擎嵌入客户端。依赖的 Gradle/Maven 元数据与上游许可证为准；此表说明主要依赖，不冒充全部传递依赖的完整法律审计。二进制分发时仍应随实际依赖保留所需许可证和归属说明。
 
@@ -31,14 +31,14 @@ JUnit 和 JSON-java 位于 testImplementation，不作为运行时天气引擎�
 
 ## 行政名称资源
 
-后端的 [china-counties.tsv](../backend/src/main/resources/administrative/china-counties.tsv) 从 [uiwjs/province-city-china](https://github.com/uiwjs/province-city-china) 的 `gh-pages` revision `547ade93bc913de0c937200d4fa218d05c0ba97b`（2026-10-11）派生，保留省、父级与县级全称共 2,847 条。它只用于显示名补全，未知或歧义记录保留提供方名称，不宣称覆盖实时官方行政边界。
+客户端的 [china-counties.tsv](../app/src/main/resources/administrative/china-counties.tsv) 从 [uiwjs/province-city-china](https://github.com/uiwjs/province-city-china) 的 `gh-pages` revision `547ade93bc913de0c937200d4fa218d05c0ba97b`（2026-10-11）派生，保留省、父级与县级全称共 2,847 条。它只用于显示名补全，未知或歧义记录保留提供方名称，不宣称覆盖实时官方行政边界。
 
-该资源单独采用 MIT 许可，Copyright (c) 2019 wabg。原 [MIT 全文](../backend/src/main/resources/licenses/province-city-china-MIT.txt) 随后端资源保留；输入文件、SHA-256 与更新方法见 [资源来源说明](../backend/src/main/resources/administrative/README.md)。发布包含该资源的服务端 JAR 或镜像时，保留其版权和许可通知；项目根 LICENSE 继续是 Apache-2.0，未将第三方资源重新许可为 Apache。
+该资源单独采用 MIT 许可，Copyright (c) 2019 wabg。原 [MIT 全文](../app/src/main/resources/licenses/province-city-china-MIT.txt) 随客户端资源保留；输入文件、SHA-256 与更新方法见 [资源来源说明](../app/src/main/resources/administrative/README.md)。发布包含该资源的 APK/AAB 时，保留其版权和许可通知；项目根 LICENSE 继续是 Apache-2.0，未将第三方资源重新许可为 Apache。
 
 ## 天气服务与数据
 
 代码采用 Apache-2.0，不代表和风天气的数据、商标或接口也采用此许可证。天气数据须按服务账户对应条款使用；设置 → 关于集中展示和风、数据来源和已提供的许可信息，保留可访问链接，首页与天气详情底部提供简短和风归属。天气预警需要保留提供方要求的来源内容。[和风服务条款](https://dev.qweather.com/en/docs/terms/tos/)、[归属要求](https://dev.qweather.com/en/docs/terms/attribution/)
 
-本轮生活指数、扩展气象字段、空气质量标准及健康建议沿用相应数据源条款，不因重新排版或绘制图表而取得新的数据授权。服务端将每个响应的 `refer` 和 `metadata.attributions` 合并，客户端关于页保留已提供的声明与链接；启用可选指数前仍需核对账户权限、地区覆盖和商业分发条件，官方接口资料见 [后端说明](../backend/README.md)。国内/国际热门城市为随包维护的坐标入口，天气数据仍由同一服务链路提供；示例生活建议只属于明确标注的本地样例。
+本轮生活指数、扩展气象字段、空气质量标准及健康建议沿用相应数据源条款，不因重新排版或绘制图表而取得新的数据授权。客户端数据层将每个响应的 `refer` 和 `metadata.attributions` 合并，客户端关于页保留已提供的声明与链接；启用可选指数前仍需核对账户权限、地区覆盖和商业分发条件，原始接口和代理约束见 [云函数说明](../serverless/README.md)。国内/国际热门城市为随包维护的坐标入口，天气数据仍由同一服务链路提供。生产 App 已移除示例；隔离测试夹具不进入 APK。
 
 API 凭据、签名密钥及个人本地配置不属于公开仓库内容。

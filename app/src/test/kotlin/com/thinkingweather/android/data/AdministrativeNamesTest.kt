@@ -1,7 +1,7 @@
-package com.thinkingweather.gateway
+package com.thinkingweather.android.data
 
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.jsonObject
+import org.json.JSONObject
+
 import org.junit.Assert.*
 import org.junit.Test
 
@@ -35,11 +35,11 @@ class AdministrativeNamesTest {
     }
 
     @Test fun `completing a display name does not replace the provider location identity`() {
-        val original = Json.parseToJsonElement("""{"name":"沙坪坝","id":"101040106","lat":"29.57","lon":"106.45","adm1":"重庆市","adm2":"重庆","country":"中国","type":"city"}""").jsonObject
+        val original = JSONObject("""{"name":"沙坪坝","id":"101040106","lat":"29.57","lon":"106.45","adm1":"重庆市","adm2":"重庆","country":"中国","type":"city"}""")
         val result = AdministrativeNames.enrich(original)
-        assertEquals("沙坪坝区", result.text("name"))
-        assertEquals("沙坪坝", result.text("originalName"))
-        original.filterKeys { it != "name" }.forEach { (key, value) -> assertEquals(value, result[key]) }
-        assertEquals("沙坪坝", original.text("name"))
+        assertEquals("沙坪坝区", result.getString("name"))
+        assertEquals("沙坪坝", result.getString("originalName"))
+        original.keys().asSequence().filter { it != "name" }.forEach { key -> assertEquals(original.get(key), result.get(key)) }
+        assertEquals("沙坪坝", original.getString("name"))
     }
 }

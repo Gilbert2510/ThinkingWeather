@@ -5,7 +5,6 @@ import android.content.pm.PackageManager
 import android.location.Location
 import android.location.LocationManager
 import android.os.Bundle
-import android.os.Build
 import android.os.CancellationSignal
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -21,7 +20,6 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.map
 import com.thinkingweather.android.ui.WeatherApp
-import com.thinkingweather.android.network.DevelopmentGateway
 import com.thinkingweather.android.network.NetworkMonitor
 import com.thinkingweather.android.network.networkNotice
 import kotlinx.coroutines.Job
@@ -35,14 +33,6 @@ class MainActivity : ComponentActivity() {
     private var locationJob: Job? = null
     private lateinit var networkMonitor: NetworkMonitor
     private var networkToast: Toast? = null
-    private val localNetworkPermission = registerForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { granted ->
-        if (granted) weatherViewModel.refresh()
-        else weatherViewModel.reportServiceAccessDenied(
-            "本机调试需要本地网络权限。请在系统的应用权限设置中允许本地网络访问后重试。"
-        )
-    }
     private val locationPermission = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
@@ -64,34 +54,15 @@ class MainActivity : ComponentActivity() {
             }
         }
         lifecycleScope.launch {
-            weatherViewModel.uiState.map { it.selectedCity.location to it.isDemo }
+            weatherViewModel.uiState.map { it.selectedCity.location }
                 .distinctUntilChanged().drop(1).collect { locationJob?.cancel() }
-        }
-        lifecycleScope.launch {
-            weatherViewModel.uiState.map { it.settingsLoaded && !it.isDemo && it.backendConfigured }
-                .distinctUntilChanged().collect { needsNetwork ->
-                    if (needsNetwork) requestLocalDevelopmentNetwork()
-                }
         }
         setContent {
             WeatherApp(weatherViewModel, onRequestLocation = ::requestWeatherLocation)
         }
     }
 
-    private fun requestLocalDevelopmentNetwork() {
-        if (!BuildConfig.DEBUG || Build.VERSION.SDK_INT < 37) return
-        val host = runCatching { java.net.URI(BuildConfig.WEATHER_BASE_URL).host }.getOrNull()
-        if (DevelopmentGateway.isLocalHost(host) && ContextCompat.checkSelfPermission(
-                this, "android.permission.ACCESS_LOCAL_NETWORK"
-            ) != PackageManager.PERMISSION_GRANTED
-        ) localNetworkPermission.launch("android.permission.ACCESS_LOCAL_NETWORK")
-    }
-
     private fun requestWeatherLocation() {
-        if (weatherViewModel.uiState.value.isDemo) {
-            weatherViewModel.reportLocationError("示例预览不使用真实位置，请手动选择示例城市。")
-            return
-        }
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION)
             == PackageManager.PERMISSION_GRANTED
         ) resolveLocation()
@@ -100,10 +71,8 @@ class MainActivity : ComponentActivity() {
 
     private fun resolveLocation() {
         locationJob?.cancel()
-        if (weatherViewModel.uiState.value.isDemo) return
         locationJob = lifecycleScope.launch {
             val requestedCity = weatherViewModel.uiState.value.selectedCity.location
-            val requestedMode = weatherViewModel.uiState.value.isDemo
             val manager = getSystemService(LocationManager::class.java)
             if (manager == null || !LocationManagerCompat.isLocationEnabled(manager)) {
                 weatherViewModel.reportLocationError("系统定位已关闭，请开启定位或手动搜索城市。")
@@ -120,7 +89,7 @@ class MainActivity : ComponentActivity() {
                     currentLocation(manager, provider)
                 }
                 val currentState = weatherViewModel.uiState.value
-                if (currentState.selectedCity.location != requestedCity || currentState.isDemo != requestedMode) return@launch
+                if (currentState.selectedCity.location != requestedCity) return@launch
                 if (location == null) {
                     weatherViewModel.reportLocationError("暂时无法获取位置，请稍后重试或手动选择城市。")
                 } else {

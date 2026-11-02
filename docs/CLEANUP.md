@@ -1,4 +1,21 @@
-# 本次目录整理记录
+# 目录整理记录
+
+## 1.1.0 Serverless 整理（2026-11-02）
+
+活跃工程只保留 Android 客户端与 `serverless/` 云函数源码。客户端直接连接已配置的公网 HTTPS 代理，debug 与 release 使用相同的服务地址；本机后端不再是构建或运行依赖。
+
+- 移除 `backend/` Gradle 模块及其 JVM 插件、旧后端构建/部署配置与测试。
+- 移除 `start-backend.ps1`、`connect-device.ps1`、模拟器主机重映射、USB 转发诊断、debug 本地网络权限及明文 HTTP 例外。
+- 移除 App 的示例预览开关、示例生成器、示例城市状态和回退路径；旧缓存中的示例天气不再读取。
+- 城市行政名称补全和许可资源迁入 `app/src/main/resources/`，避免移除后端后丢失区县后缀功能。
+- 保留不进入 APK 的 JVM/UI 自动化测试；共享样例仅在 `app/src/testFixtures/` 中编译，UI 测试使用独立内存数据源，不访问云函数或覆盖真实收藏。
+- 保留发布签名、Gradle Wrapper、正式网络状态监听、主动定位、收藏、排序和真实离线缓存。
+
+旧后端及本机凭据、转发脚本和调试配置已移到 Git 忽略的 `local-archive/pre-serverless-1.1.0/`，用于本机恢复。此目录可能包含旧凭据，不应打包或上传；其内容不属于当前源码或发布产物。当前目录和部署方式见 [项目结构](PROJECT_STRUCTURE.md) 与 [Serverless 说明](HOSTING.md)。
+
+下文为早期整理的历史记录，描述的是当时的工程状态。
+
+## 1.0.x 初期整理（历史记录）
 
 正式版已从 1.0.0 / versionCode 1 开始，调试版使用独立包名；相关操作见 [发布说明](RELEASING.md)。
 

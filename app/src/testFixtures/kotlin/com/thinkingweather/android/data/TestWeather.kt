@@ -5,7 +5,7 @@ import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
-data class DemoWeatherScenario(
+data class TestWeatherScenario(
     val city: City,
     val icon: String,
     val text: String,
@@ -15,38 +15,38 @@ data class DemoWeatherScenario(
     val category: WeatherCategory get() = weatherCategory(icon, text)
 }
 
-/** Local, fixed weather scenarios. A failed live request never falls back to these values. */
-object DemoWeather {
-    val catalog: List<DemoWeatherScenario> = listOf(
-        DemoWeatherScenario(DefaultCities.beijing, "100", "晴", 16),
-        DemoWeatherScenario(DefaultCities.shanghai, "104", "阴", 21),
-        DemoWeatherScenario(DefaultCities.hangzhou, "101", "多云", 20),
-        DemoWeatherScenario(DefaultCities.guangzhou, "306", "中雨", 27),
-        DemoWeatherScenario(DefaultCities.shenzhen, "300", "阵雨", 28),
-        DemoWeatherScenario(DefaultCities.chengdu, "305", "小雨", 18),
-        DemoWeatherScenario(DefaultCities.tianjin, "150", "晴", 16, night = true),
-        DemoWeatherScenario(DefaultCities.nanjing, "307", "大雨", 20),
-        DemoWeatherScenario(DefaultCities.fuzhou, "310", "暴雨", 24),
-        DemoWeatherScenario(DefaultCities.xiamen, "302", "雷阵雨", 26),
-        DemoWeatherScenario(DefaultCities.haikou, "303", "强雷阵雨", 27),
-        DemoWeatherScenario(DefaultCities.wuhan, "304", "雷阵雨伴有冰雹", 18),
-        DemoWeatherScenario(DefaultCities.taiyuan, "400", "小雪", -1),
-        DemoWeatherScenario(DefaultCities.shenyang, "401", "中雪", -4),
-        DemoWeatherScenario(DefaultCities.harbin, "402", "大雪", -9),
-        DemoWeatherScenario(DefaultCities.changchun, "403", "暴雪", -8),
-        DemoWeatherScenario(DefaultCities.xining, "404", "雨夹雪", 2),
-        DemoWeatherScenario(DefaultCities.guiyang, "313", "冻雨", 0),
-        DemoWeatherScenario(DefaultCities.chongqing, "501", "雾", 18),
-        DemoWeatherScenario(DefaultCities.shijiazhuang, "502", "霾", 19),
-        DemoWeatherScenario(DefaultCities.hohhot, "507", "沙尘暴", 10),
-        DemoWeatherScenario(DefaultCities.lanzhou, "504", "浮尘", 13),
+/** Deterministic test fixtures. This source set is excluded from both production APK variants. */
+object TestWeather {
+    val catalog: List<TestWeatherScenario> = listOf(
+        TestWeatherScenario(DefaultCities.beijing, "100", "晴", 16),
+        TestWeatherScenario(DefaultCities.shanghai, "104", "阴", 21),
+        TestWeatherScenario(DefaultCities.hangzhou, "101", "多云", 20),
+        TestWeatherScenario(DefaultCities.guangzhou, "306", "中雨", 27),
+        TestWeatherScenario(DefaultCities.shenzhen, "300", "阵雨", 28),
+        TestWeatherScenario(DefaultCities.chengdu, "305", "小雨", 18),
+        TestWeatherScenario(DefaultCities.tianjin, "150", "晴", 16, night = true),
+        TestWeatherScenario(DefaultCities.nanjing, "307", "大雨", 20),
+        TestWeatherScenario(DefaultCities.fuzhou, "310", "暴雨", 24),
+        TestWeatherScenario(DefaultCities.xiamen, "302", "雷阵雨", 26),
+        TestWeatherScenario(DefaultCities.haikou, "303", "强雷阵雨", 27),
+        TestWeatherScenario(DefaultCities.wuhan, "304", "雷阵雨伴有冰雹", 18),
+        TestWeatherScenario(DefaultCities.taiyuan, "400", "小雪", -1),
+        TestWeatherScenario(DefaultCities.shenyang, "401", "中雪", -4),
+        TestWeatherScenario(DefaultCities.harbin, "402", "大雪", -9),
+        TestWeatherScenario(DefaultCities.changchun, "403", "暴雪", -8),
+        TestWeatherScenario(DefaultCities.xining, "404", "雨夹雪", 2),
+        TestWeatherScenario(DefaultCities.guiyang, "313", "冻雨", 0),
+        TestWeatherScenario(DefaultCities.chongqing, "501", "雾", 18),
+        TestWeatherScenario(DefaultCities.shijiazhuang, "502", "霾", 19),
+        TestWeatherScenario(DefaultCities.hohhot, "507", "沙尘暴", 10),
+        TestWeatherScenario(DefaultCities.lanzhou, "504", "浮尘", 13),
         // Wind is classified by text; it does not pretend to be an upstream wind icon code.
-        DemoWeatherScenario(DefaultCities.urumqi, "999", "大风", 7),
-        DemoWeatherScenario(DefaultCities.suzhou, "999", "未知天气", 18),
+        TestWeatherScenario(DefaultCities.urumqi, "999", "大风", 7),
+        TestWeatherScenario(DefaultCities.suzhou, "999", "未知天气", 18),
     )
 
-    fun scenario(city: City): DemoWeatherScenario = catalog.firstOrNull { it.city.location == city.location }
-        ?: DemoWeatherScenario(city, "999", "未知天气", 16)
+    fun scenario(city: City): TestWeatherScenario = catalog.firstOrNull { it.city.location == city.location }
+        ?: TestWeatherScenario(city, "999", "未知天气", 16)
 
     fun create(city: City, nowMillis: Long = System.currentTimeMillis()): WeatherSnapshot {
         val sample = scenario(city)
@@ -112,7 +112,7 @@ object DemoWeather {
                 no2Unit = "μg/m³", so2Unit = "μg/m³", coUnit = "mg/m³", o3Unit = "μg/m³",
                 indexCode = "cn-mee", indexName = "中国 AQI",
                 generalAdvice = "示例建议：关注本地空气质量，合理安排户外活动。"),
-            fetchedAt = nowMillis, isDemo = true, sourceUrl = "", sources = listOf("本地演示数据"), licenses = emptyList(),
+            fetchedAt = nowMillis, sourceUrl = "https://www.qweather.com/", sources = listOf("自动化测试数据"), licenses = emptyList(),
             indices = listOf(
                 LifeIndex(local.toLocalDate().toString(), "3", "穿衣指数", if (temperature < 10) "2" else "4",
                     if (temperature < 10) "冷" else "较舒适", "示例建议：早晚适当增添外套，按体感调整衣物。"),

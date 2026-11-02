@@ -4,90 +4,69 @@
 
 | 项目 | 正式版 | 调试版 |
 | --- | --- | --- |
-| 版本号 | 1.0.4 | 1.0.4-debug |
-| versionCode | 5 | 5 |
+| 版本号 | 1.1.0 | 1.1.0-debug |
+| versionCode | 6 | 6 |
 | applicationId | com.thinkingweather.android | com.thinkingweather.android.debug |
 | 显示名称 | 随想天气 | 随想天气 · 开发版 |
-| 签名 | 本机独立发布证书 | Android 默认调试证书 |
+| 签名 | 现有私有发布证书 | 默认 Android 调试证书 |
+| 天气服务 | 公网 FC HTTPS | 同一公网 FC HTTPS |
 
-版本来源为仓库根目录 version.properties。Android 与后端读取 VERSION_NAME；Android 另读取 VERSION_CODE。以后的每次正式发布，VERSION_CODE 都必须递增，VERSION_NAME 按 major.minor.patch 维护。
+`version.properties` 是版本来源。每次发行 `VERSION_CODE` 必须递增，`VERSION_NAME` 按 major.minor.patch 维护。1.1.0 将运行链路迁到已提供的 Serverless 入口并移除本地服务及示例预览，保留 1.0.4 的真实天气功能与界面。
 
-版本在前次整理中按新发行系列重置为 1。本轮固定磨砂顶部栏、城市批量编辑与独立搜索、天气详情及可选生活指数改进使用 1.0.4 / versionCode 5；1.0.3 / versionCode 4 的 ℃、直观风向、城市摘要、区县补全及独立隐私/关于页继续保留。顶部下拉指示器仍在静止时隐藏。1.0.0 更名时已建立 com.thinkingweather.android 安装 ID，本次继续沿用；使用同一发布证书可覆盖更新随想天气 1.0.0–1.0.3 并保留数据。更名前的旧包属于另一个应用，其收藏、偏好和缓存不会自动迁移。调试版使用独立包名，可与正式版并存。已上架应用不能通过更名或重置版本号绕过商店的安装 ID 和版本递增规则。[Android 版本规则](https://developer.android.com/studio/publish/versioning)
+当前安装 ID 与既有发布证书不变，可覆盖升级同签名的随想天气 1.0.0–1.0.4 并保留真实城市和设置。旧示例偏好忽略、示例缓存不作为真实数据；更名前不同安装 ID 的旧应用不自动迁移。[Android 版本规则](https://developer.android.com/studio/publish/versioning)
 
-## 已生成的本地证书
+## 保留现有签名身份
 
-本机已经生成：
+本机私有材料仍为 `signing/release-keystore.p12` 与 `signing/keystore.properties`，别名 `thinkingweather-release`，RSA 3072 位。发布证书 SHA-256 保持：
 
-- signing/release-keystore.p12：PKCS#12 密钥库，RSA 3072 位，有效期 10000 天。
-- signing/keystore.properties：本地签名配置，包括密钥库相对路径、别名及随机密码。
-- 别名：thinkingweather-release；更名时曾调整密钥别名，当前沿用原私钥与证书。
+`400bf419f75110917b42e58f1a19195c80dbdc357989ebc0e5d4ed671763e050`
 
-现有证书的 SHA-256 指纹仍为 400bf419f75110917b42e58f1a19195c80dbdc357989ebc0e5d4ed671763e050。现有证书主体仍为 CN=Window Weather, OU=Android App，属于历史签名身份，不决定手机上显示的软件名称。不要为改证书中的名称而替换密钥或证书；显示名称已通过 Android 资源改为“随想天气”。更名前的本机签名备份位于已被忽略的 signing/backups/before-thinkingweather/，其中也含敏感材料。
+证书主体中的 `CN=Window Weather, OU=Android App` 是历史身份，不影响显示名称；不要为了更名而替换证书。更名前私有备份在 `signing/backups/before-thinkingweather/`，同样不能提交。实际密钥、密码、签名配置与归档均由 Git 忽略，不得写到聊天、日志、APK 或源码压缩包。
 
-这些实际文件被 Git 与 Docker 忽略；Windows 上目录权限限制为当前账户和 SYSTEM。密码不写入构建脚本、命令行参数或聊天。生成脚本通过短暂的进程环境传递密码，完成后清除环境值。
+请分别安全备份密钥库与密码，后续覆盖更新需要同一证书。其他机器优先恢复备份；仅对全新且尚未签名的项目使用 `scripts/new-release-keystore.ps1`，脚本检测到已有材料会拒绝覆盖。默认生成参数不会改写本机现有证书。[Android 签名规则](https://developer.android.com/studio/publish/app-signing)
 
-请立即将密钥库和密码分别备份到安全位置。今后的 APK 更新必须保留同一发布证书；不要再次生成密钥来替换已分发的证书。[Android 签名规则](https://developer.android.com/studio/publish/app-signing)
-
-其他电脑首次配置可先恢复备份。仅新项目尚无证书时，才运行：
+## 构建和分发
 
 ```powershell
-$env:JAVA_HOME = '你的 JDK 25 目录'
-.\scripts\new-release-keystore.ps1
+$env:JAVA_HOME = 'C:\software\AndroidStudio\jbr'
+.\gradlew.bat :app:assembleSignedRelease :app:bundleSignedRelease
 ```
 
-新项目生成脚本使用 thinkingweather-release 别名与 CN=ThinkingWeather, OU=Android App 主体；这些是新生成证书的默认参数，不会改写本机已经存在的证书。脚本检测到任一现有密钥或配置就会拒绝覆盖。勿删除现有文件来绕过这个保护；它们是后续版本升级所需的身份凭据。
+输出：
 
-## 构建命令
+- `app/build/outputs/apk/release/app-release.apk`：签名 APK。
+- `app/build/outputs/bundle/release/app-release.aab`：签名商店 Bundle。
 
-```powershell
-.\gradlew.bat :app:assembleSignedRelease
-.\gradlew.bat :app:bundleSignedRelease
-```
+Signed 任务先验证私有签名配置。没有配置的干净克隆可用普通 `assembleRelease` 验证未签名构建，不会自动用调试证书代替正式身份。
 
-产物：
+默认公网服务地址已进入公开构建配置，正式包不再因为缺少本机网关而展示示例。若换服务，可用 `-PWEATHER_BASE_URL=https://新云函数地址` 覆盖；必须是无账号、查询或片段的 HTTPS URL。`WEATHER_DEBUG_BASE_URL`、USB 转发、本地 HTTP 和本地网络权限已移除。密钥与专属 API Host 只在 FC 环境变量中，不能写入构建地址。
 
-- app/build/outputs/apk/release/app-release.apk：已签名 APK。
-- app/build/outputs/bundle/release/app-release.aab：已签名商店 Bundle。
+仓库内 `serverless/index.mjs` 的新防护实现需要在阿里云另行部署，修改源码/生成 APK 不会自动发布云函数。云端配置和状态排查见 [HOSTING.md](HOSTING.md)。构建通过不代表真实订阅、额度和地区覆盖已通过。
 
-Signed 任务会先验证私有签名配置。对没有签名配置的 GitHub 干净克隆，普通 assembleRelease 允许生成未签名包供 CI 检查；不会偷偷使用调试证书作为发布证书。
+分发文件命名为 `dist/thinking-weather-1.1.0.apk`、`dist/thinking-weather-1.1.0.aab`、`dist/thinking-weather-1.1.0-debug.apk`。仅在实际打包后以 `dist/SHA256SUMS.txt` 和 [VALIDATION.md](VALIDATION.md) 核对大小、哈希、签名与限制；版本号更新本身不表示这些操作已完成。旧版本产物应存入 `dist/previous-versions/`，不混作当前分发物。
 
-生成发布包之前，在本机 local.properties 配置正式 HTTPS 网关 WEATHER_BASE_URL。未配置时，即使 APK 已签名，仍展示示例天气。签名与真实服务接入是独立配置。调试版专用 WEATHER_DEBUG_BASE_URL 绝不会替代正式地址。
+## CI 与签名配置
 
-本机调试可统一设置 WEATHER_DEBUG_BASE_URL=http://127.0.0.1:8080。debug 模拟器运行时自动将 HTTP 回环主机改为电脑别名 10.0.2.2，保留端口和编码路径；真机保留原地址，通过 USB 转发访问。HTTPS 和 release 地址不改写。模拟器重启后不必重建 adb 转发，但电脑后端仍须运行。连接步骤见 [HOSTING.md](HOSTING.md)。
-
-## CI 中配置签名
-
-可通过私密环境变量代替本机配置：
-
-| 变量 | 用途 |
+| 私密环境变量 | 用途 |
 | --- | --- |
-| WEATHER_STORE_FILE | 密钥库路径，项目相对路径或绝对路径 |
+| WEATHER_STORE_FILE | 密钥库路径 |
 | WEATHER_STORE_PASSWORD | 密钥库密码 |
-| WEATHER_KEY_ALIAS | 发布密钥别名 |
-| WEATHER_KEY_PASSWORD | 密钥密码 |
+| WEATHER_KEY_ALIAS | 发布别名 |
+| WEATHER_KEY_PASSWORD | 私钥密码 |
 
-四项要同时提供；不完整配置会立即报错。密钥库应由 CI 的 Secret 文件或受保护步骤注入，默认类型 PKCS12。不要在 YAML、GitHub Issue、日志、截图或上传的构建诊断包中写密码。默认验证工作流不需要这些 Secrets，也不负责发布。
+四项需完整提供；本机也可使用被忽略的签名配置。CI 密钥由受保护的 Secret 文件/变量注入，不写入 YAML、Issue 或命令行。默认工作流仅执行 Android 构建、单元测试、Lint 与隔离 Node 测试，不需要天气凭据、不会部署 FC，也不负责签名或发布。
 
-本轮分发文件使用 dist/thinking-weather-1.0.4.apk、dist/thinking-weather-1.0.4.aab 和 dist/thinking-weather-1.0.4-debug.apk；完成构建与签名核验后，以 [验证记录](VALIDATION.md) 和 dist/SHA256SUMS.txt 确认最终产物，再上传 GitHub Releases 的附件。版本文件的更新本身不代表构建、签名、真实 API 或设备验证已经通过。不要把 APK/AAB 或签名文件提交到源码分支。dist/ 仅保存本机生成文件，已被 Git 忽略；旧版本产物不作为当前分发文件。
-
-1.0.2、1.0.3 产物已分别归档于 dist/previous-versions/1.0.2/ 和 dist/previous-versions/1.0.3/，当前校验文件已更新为 1.0.4。后端行政名称资源单独采用 MIT 许可；分发服务端 JAR/镜像时保留资源内的原许可证和来源说明。生活指数和扩展气象字段仍受和风服务及数据来源条款约束，详见 [LICENSING.md](LICENSING.md)。
-
-## 本机验证
-
-完整验证：
+## 验证与上传前检查
 
 ```powershell
-.\gradlew.bat :app:assembleSignedRelease :app:bundleSignedRelease :app:assembleDebug :app:testDebugUnitTest :app:lintDebug :backend:test :backend:installDist
+.\gradlew.bat :app:testDebugUnitTest :app:lintDebug :app:assembleDebug :app:assembleRelease
+npm --prefix serverless test
+# 已连接设备后按当前测试入口执行：
+.\gradlew.bat :app:connectedDebugAndroidTest
 ```
 
-运行示例测试时可加 -PWEATHER_DEBUG_BASE_URL=，以免访问本机网关。设备测试还需要已连接的模拟器或真机：
+自动化夹具不进入正式 APK，也不启动本地天气后端。真实验证应另外检查公网城市查询、核心预报、可选内容、离线缓存与实际手机的 Wi-Fi/移动网络，记录服务端错误与限制。
 
-```powershell
-.\gradlew.bat :app:connectedDebugAndroidTest -PWEATHER_DEBUG_BASE_URL=
-```
+提交前检查 `git status` 和暂存区：保留源码、Wrapper、配置模板、LICENSE/NOTICE 与说明；排除真实环境变量、密钥库、`local.properties`、`build/`、`dist/`、`node_modules/`、IDE 缓存和 `local-archive/`。旧 Kotlin 后端及私有配置的本机归档不作为云函数包、APK 或 Git 上传内容；`.gitignore` 不会自动撤回历史提交。
 
-正式版安装 ID 已变更、原应用数据不会自动迁移，这些行为应在分发说明中明确告知；不要自动卸载用户设备上的旧应用。未来 com.thinkingweather.android 的覆盖升级仍需相同发布证书与更高版本码。
-
-## GitHub 上传前
-
-检查 git status 和暂存区。源码、Wrapper JAR、配置模板、LICENSE、NOTICE 与文档应提交；实际密钥、密码配置、.env.local、local.properties、build/、dist/、IDE 缓存及 local-archive/ 不应提交。.gitignore 不会自动清除旧提交历史，历史中的文件需要另外评估，不能靠新 ignore 规则撤回。
+行政名称资源现在随 Android Java resources 分发，单独使用 MIT，需保留原版权和全文；天气数据仍受和风及对应来源条款约束，见 [LICENSING.md](LICENSING.md)。

@@ -41,7 +41,6 @@ import androidx.compose.ui.zIndex
 import androidx.lifecycle.compose.LifecycleStartEffect
 import com.thinkingweather.android.WeatherUiState
 import com.thinkingweather.android.WeatherViewModel
-import com.thinkingweather.android.data.DemoWeather
 import com.thinkingweather.android.data.WeatherStore
 import com.thinkingweather.android.data.orderedSavedCities
 import com.thinkingweather.android.model.*
@@ -101,7 +100,6 @@ internal fun CitiesPage(
             delay(16)
         }
     }
-    LaunchedEffect(state.isDemo) { if (state.isDemo) { editing = false; selected = emptyList() } }
     LaunchedEffect(state.cities) { selected = selected.filter { key -> state.cities.any { it.location == key } } }
     BackHandler(editing, finish)
     LifecycleStartEffect(vm) { vm.onCitiesOpened(); onStopOrDispose { vm.onCitiesClosed() } }
@@ -115,21 +113,21 @@ internal fun CitiesPage(
                     fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
                 TextButton(onClick = finish) { Text("完成") }
             } else Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.weight(1f)) { PageHeader("我的城市", if (state.isDemo) "固定场景 · 不占用真实收藏" else "把关心的地方，放在身边", onBack) }
+                Box(Modifier.weight(1f)) { PageHeader("我的城市", "把关心的地方，放在身边", onBack) }
                 TextButton(onClick = { order = state.cities.map(City::location); editing = true; vm.clearCityEditMessage() },
-                    enabled = !state.isDemo, modifier = Modifier.testTag("edit-cities")) { Text("编辑") }
+                    modifier = Modifier.testTag("edit-cities")) { Text("编辑") }
             }
             AnimatedVisibility(!editing, enter = expandVertically(), exit = shrinkVertically()) {
                 Column {
                     CitySearchEntry(onSearch)
-                    if (!state.isDemo) FilledTonalButton(onClick = { onLocation(); onBack() }, enabled = state.backendConfigured,
+                    FilledTonalButton(onClick = { onLocation(); onBack() },
                         modifier = Modifier.fillMaxWidth().padding(top = 12.dp).heightIn(min = 48.dp)) {
                         LineIcon(Glyph.Location, Modifier.size(18.dp), MaterialTheme.colorScheme.onSecondaryContainer)
                         Spacer(Modifier.width(9.dp)); Text("使用当前位置")
                     }
                     Row(Modifier.fillMaxWidth().padding(top = 22.dp, bottom = 12.dp)) {
-                        Text(if (state.isDemo) "天气示例 · 非实时数据" else "已保存", Modifier.weight(1f), fontSize = 13.sp, fontWeight = FontWeight.Medium)
-                        Text(if (state.isDemo) "${cities.size} 个场景" else "${cities.size} / ${WeatherStore.MAX_CITIES}", fontSize = 12.sp,
+                        Text("已保存", Modifier.weight(1f), fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                        Text("${cities.size} / ${WeatherStore.MAX_CITIES}", fontSize = 12.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
@@ -200,13 +198,12 @@ private fun CityManagementCard(
     city: City, state: WeatherUiState, editing: Boolean, checked: Boolean, modifier: Modifier,
     onSelect: () -> Unit, onDragStart: () -> Unit, onDrag: (Float) -> Unit, onDragEnd: () -> Unit, onMove: (Int) -> Unit,
 ) {
-    val scenario = if (state.isDemo) DemoWeather.scenario(city) else null
     val snapshot = state.snapshot?.takeIf { it.city.location == city.location }
     val summary = state.citySummaries[city.location]
-    val temperature = scenario?.temperature?.toString() ?: summary?.temp ?: snapshot?.now?.temp.orEmpty()
-    val weather = scenario?.text ?: summary?.text ?: snapshot?.now?.text.orEmpty()
-    val icon = scenario?.icon ?: summary?.icon ?: snapshot?.now?.icon.orEmpty()
-    val night = scenario?.night ?: (icon in setOf("150", "151", "152", "153", "350", "351", "456", "457"))
+    val temperature = summary?.temp ?: snapshot?.now?.temp.orEmpty()
+    val weather = summary?.text ?: snapshot?.now?.text.orEmpty()
+    val icon = summary?.icon ?: snapshot?.now?.icon.orEmpty()
+    val night = icon in setOf("150", "151", "152", "153", "350", "351", "456", "457")
     val loading = city.location in state.loadingCitySummaries
     val stale = summary?.isStale ?: (snapshot?.isStale == true)
     val current = state.selectedCity.location == city.location
@@ -223,12 +220,11 @@ private fun CityManagementCard(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(city.name, color = SkyWhite, fontSize = 22.sp, fontWeight = FontWeight.Medium,
                     maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, false))
-                if (!state.isDemo && state.locatedCityLocation == city.location)
+                if (state.locatedCityLocation == city.location)
                     LineIcon(Glyph.Location, Modifier.padding(start = 6.dp).size(16.dp).semantics { contentDescription = "定位城市" }, SkyWhite)
                 if (current && !editing) SelectedCityMark(Modifier.padding(start = 7.dp))
             }
             val description = when {
-                scenario != null -> "示例 · $weather${if (night) " · 夜间" else ""}"
                 weather.isNotBlank() -> (if (stale) "缓存 · " else "") + weather
                 loading -> "正在获取天气"
                 city.location in state.citySummaryErrors -> "暂时无法更新"

@@ -60,7 +60,7 @@ class WeatherInsightDataTest {
     }
 
     @Test fun missingFeedsAndOrdinalLifeLevelsDoNotInventAMeasuredUvSection() {
-        val snapshot = WeatherSnapshot(DefaultCities.beijing, CurrentWeather(temp = "12"), fetchedAt = 0L, isDemo = true)
+        val snapshot = WeatherSnapshot(DefaultCities.beijing, CurrentWeather(temp = "12"), fetchedAt = 0L)
         assertEquals(listOf("current"), availableInsightSections(snapshot).map { it.key })
         val lifeOnly = snapshot.copy(indices = listOf(LifeIndex(type = "5", name = "紫外线", level = "5", category = "很强", text = "测试生活建议")))
         assertEquals(listOf("current", "life"), availableInsightSections(lifeOnly).map { it.key })

@@ -70,7 +70,8 @@ internal class NetworkMonitor(context: Context, private val onChanged: (NetworkS
             }
             return networkState(
                 capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET),
-                capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED), cellular,
+                // A failed general-internet probe does not prove that this HTTPS service is unreachable.
+                capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_CAPTIVE_PORTAL), cellular,
             )
         }
     }

@@ -12,17 +12,22 @@ import org.json.JSONArray
 
 private val Context.citySummaryPreferences by preferencesDataStore(name = "thinking_weather_city_cards_v1")
 
-/** Keeps current-only cards separate from complete cached forecasts and demo data. */
-internal class CitySummaryStore(context: Context) {
+internal interface CitySummaryCache {
+    suspend fun read(): List<CityWeatherSummary>
+    suspend fun save(cards: Collection<CityWeatherSummary>)
+}
+
+/** Keeps current-only cards separate from complete cached forecasts. */
+internal class CitySummaryStore(context: Context) : CitySummaryCache {
     private val store = context.applicationContext.citySummaryPreferences
     private val cardsKey = stringPreferencesKey("cards")
 
-    suspend fun read(): List<CityWeatherSummary> {
+    override suspend fun read(): List<CityWeatherSummary> {
         val prefs = store.data.catch { error -> if (error is IOException) emit(emptyPreferences()) else throw error }.first()
         return decode(prefs[cardsKey])
     }
 
-    suspend fun save(cards: Collection<CityWeatherSummary>) {
+    override suspend fun save(cards: Collection<CityWeatherSummary>) {
         val bounded = cards.distinctBy { it.city.location }.sortedByDescending(CityWeatherSummary::fetchedAt)
             .take(WeatherStore.MAX_CITIES)
         store.edit { prefs ->

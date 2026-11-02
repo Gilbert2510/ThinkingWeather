@@ -1,8 +1,47 @@
 # 本机验证记录
 
-最新验证日期：2026-10-29（Asia/Shanghai）。1.0.0 和 1.0.1 的历史记录保留自 2026-10-28。
+最新验证日期：2026-11-02（Asia/Shanghai）。下方保留早期版本的历史记录。
 
-## 1.0.4 固定顶部栏、城市编辑与天气详情（当前交付）
+## 1.1.0 Serverless 迁移与生产清理（当前交付）
+
+版本 1.1.0 / versionCode 6，正式与调试版本默认直连同一公网 HTTPS 函数：`https://thinkiner-proxy-pjqxglocom.cn-hangzhou.fcapp.run`。已不需要电脑后端、USB 转发或配置本地天气地址；APK 无和风凭据，签名与安装 ID 延续已有版本。
+
+旧 Kotlin 后端模块、相关构建/部署与测试、本地连接脚本、模拟器地址重写、debug 本地网络权限、HTTP 例外和 App 示例预览均退出活跃工程。旧后端与本机凭据保留于 Git 忽略的 `local-archive/pre-serverless-1.1.0/`，不进入源码提交或分发包。行政名称补全及 MIT 许可迁入 Android Java resources；旧示例偏好忽略，旧示例缓存拒绝作为真实天气读取。
+
+客户端通过原始 GeoAPI、Weather v1、空气、预警与生活指数路由组合数据；明确的 v1 不兼容情况可切换 v7，401/429/网络失败不会跨接口重试。所有请求共用两个并发许可、同 URL 合并、有界缓存和取消；429 尊重 Retry-After，并在同一数据源中暂停其他路径。补充接口失败或超时保留已有实况，以 partialFailures 标注缺失。
+
+最初公网返回阿里云平台 `429 ResourceExhausted / Function concurrent request count exceeded`，用户调整后已恢复。另确认模拟器默认移动网络具有 INTERNET / PARTIAL_CONNECTIVITY，却没有 VALIDATED：现在仅无互联网路由或已知需登录网络提前判离线，允许实际尝试 HTTPS 服务，不用第三方连通性验证结果硬阻断天气请求。正式包已在此网络下取得真实天气。
+
+实网还发现 v1 的统一晴天代码和空观测时间会让北京晚间显示太阳，现由 WeatherDaylight 结合城市时区和对应日照判定，逐小时按各自预报时间判断。最终正式包在手机系统 UTC 12:43、北京当地 20:43 时显示深色夜空及月亮，不虚构观测时间。
+
+| 验证项目 | 结果 |
+| --- | --- |
+| Android 构建 | debug、设备测试 APK、签名 release APK/AAB、R8、资源裁剪成功；Gradle 仅 app 模块 |
+| JVM 测试 | 79 项通过、0 失败，含原始协议、业务错误、并发/缓存/冷却/取消、单位映射、行政名称、旧示例拒绝与新增 6 项城市昼夜测试 |
+| 云函数测试 | 12 项 Node 隔离测试通过、0 失败；覆盖路由/参数、Host、错误、超时/体积、限流/冷却、缓存与合并，不访问真实服务或读取实际环境变量 |
+| 模拟器交互 | API 37 上完整 12 项通过（168.355 秒）；使用普通依赖注入和内存存储，不发公网请求，也不改真实收藏/偏好/缓存 |
+| 公网原始协议 | v7 实况、Geo 城市查询、v1 实况/24 小时/7 日均返回可用 JSON；无需本机天气服务 |
+| 正式包端到端 | 覆盖安装并保留已有数据，实际显示北京 9℃、24 小时与 7 日预报；搜索 shapingba 展示“沙坪坝区”；日照和穿衣/防晒/旅游/UV 生活建议已在正式界面检查，查询后恢复主页 |
+| APK 内容 | 公网入口存在；TestWeather、FixtureWeatherSource、DemoWeather、DevelopmentGateway 不在 debug APK 中；行政 TSV 和原 MIT 许可证已打包 |
+| 网络权限 | APK 仅使用互联网、网络状态、主动大致定位及框架接收器权限，没有 ACCESS_LOCAL_NETWORK 或本地明文网络配置 |
+| Lint | 0 errors、8 warnings；保留既有依赖版本/资源目录提示，无新增全局忽略 |
+| 签名 | APK v2/v3 有效；AAB 全部 102 个内容条目签名有效且证书一致，原发布指纹保持 |
+| 文档与忽略 | 当前结构、Serverless 部署、隐私、许可和 CI 已更新；真实凭据、旧本机归档、签名、Node 依赖、安装包和日志被排除 |
+
+| 当前 dist/ 文件 | 字节数 | SHA-256 |
+| --- | --- | --- |
+| thinking-weather-1.1.0.apk | 1,770,832 | 24db6fd628862c2628ff04c24b7095bf0243b9ea600d1213b4f43be9fa6ecf32 |
+| thinking-weather-1.1.0.aab | 4,329,192 | 8b6dae644c6d0fc500a8ca77cbb2a24264f9203487ecbbe520b879dc1c4790e0 |
+| thinking-weather-1.1.0-debug.apk | 13,823,658 | 254c24b6400d7e69686076ec63ed6f1836416e0581d6414ddb44ed144a6bd11b |
+| thinking-weather-fc-1.1.0.zip | 10,271 | b413b31a20537642bfdf353c341bfbb411b2cd0e56b6030fdf93d81c80ff627f |
+
+校验文件为 `dist/SHA256SUMS.txt`，1.0.4 产物已移至 `dist/previous-versions/1.0.4/`。发布证书 SHA-256 仍为 `400bf419f75110917b42e58f1a19195c80dbdc357989ebc0e5d4ed671763e050`。
+
+日志、公共响应与截图在被忽略的 `build/serverless-review/`：`android-validation.log`、`release-build.log`、`device-tests.log`、`node-tests.log`；`release-final.png/xml` 为最终正式主页，`release-search.png/xml` 为实际区县查询，`release-bottom.png/xml` 为日照与生活指数。旧 connected 报告不代表本轮设备结果。
+
+目前实际在线的仍是用户原先部署的代理；仓库新 `serverless/index.mjs` 及 ZIP 中的白名单、超时、缓存和实例限流代码尚未代为部署，需在阿里云控制台替换发布才生效。云端还需配置适用的全局配额和预算；不把实例内计数、APK 常量或 CORS 当成全局认证。未连接实体手机，不将模拟器移动网络写作真机蜂窝/GPS 实测。部署步骤见 [Serverless 说明](../serverless/README.md)。
+
+## 1.0.4 固定顶部栏、城市编辑与天气详情（历史记录）
 
 版本 1.0.4 / versionCode 5，正式安装 ID com.thinkingweather.android、调试后缀 .debug 与原发布证书保持不变。
 

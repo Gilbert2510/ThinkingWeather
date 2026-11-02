@@ -6,6 +6,12 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class WeatherJsonTest {
+    @Test(expected = JSONException::class) fun legacyExampleCacheCannotBeLoadedAsRealWeather() {
+        val cached = WeatherJson.encodeSnapshot(TestWeather.create(DefaultCities.beijing, 1793152800000L))
+            .put("isDemo", true)
+        WeatherJson.cachedSnapshot(cached)
+    }
+
     @Test fun missingOptionalFeedsDoNotInventWeather() {
         val result = WeatherJson.snapshot("""{"now":{"temp":"16","text":"晴"}}""", DefaultCities.beijing, 123)
         assertEquals("16", result.now.temp)
@@ -15,7 +21,7 @@ class WeatherJsonTest {
         assertTrue(result.warnings.isEmpty())
         assertTrue(result.indices.isEmpty())
         assertNull(result.air)
-        assertFalse(result.isDemo)
+
         assertEquals(123L, result.fetchedAt)
     }
 
@@ -81,8 +87,8 @@ class WeatherJsonTest {
         assertEquals(listOf("hourly"), result.partialFailures)
     }
 
-    @Test fun fullCacheRoundtripPreservesDemoIdentityAndForecasts() {
-        val fixture = DemoWeather.create(DefaultCities.hangzhou, 1793152800000L)
+    @Test fun fullCacheRoundtripPreservesForecasts() {
+        val fixture = TestWeather.create(DefaultCities.hangzhou, 1793152800000L)
         assertEquals(fixture, WeatherJson.cachedSnapshot(WeatherJson.encodeSnapshot(fixture)))
     }
 

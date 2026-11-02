@@ -56,12 +56,10 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.tooling.preview.Preview
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.thinkingweather.android.WeatherUiState
 import com.thinkingweather.android.WeatherViewModel
 import com.thinkingweather.android.model.*
-import com.thinkingweather.android.data.DemoWeather
 import java.time.LocalDate
 import java.time.OffsetDateTime
 import java.time.ZoneId
@@ -154,7 +152,7 @@ private fun WeatherHome(
 ) {
     val systemNight = androidx.compose.foundation.isSystemInDarkTheme()
     var previousVisual by remember { mutableStateOf(WeatherCategory.CLEAR to systemNight) }
-    val night = state.snapshot?.let(::isNight) ?: previousVisual.second
+    val night = state.snapshot?.let { currentWeatherIsNight(it, clockMillis) } ?: previousVisual.second
     val category = state.snapshot?.now?.let { weatherCategory(it.icon, it.text) } ?: previousVisual.first
     SideEffect { if (state.snapshot != null) previousVisual = category to night }
     val background = animatedWeatherColors(category, night)
@@ -204,9 +202,6 @@ private fun WeatherHome(
                 verticalArrangement = Arrangement.spacedBy(18.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                if (state.isDemo) item {
-                    InfoStrip("示例预览 · 非实时天气", "当前展示内置样例，请勿用于出行决策。", "说明", onSettings, Modifier.widthIn(max = 1040.dp))
-                }
                 state.errorMessage?.let { message -> item {
                     InfoStrip(if (state.snapshot != null) "暂时无法更新" else "天气获取失败", message, "重试", vm::refresh, Modifier.widthIn(max = 1040.dp))
                 } }
@@ -220,20 +215,20 @@ private fun WeatherHome(
                 }
                 val snapshot = state.snapshot
                 if (snapshot == null) {
-                    item { EmptyWeather(state, onLocation = onRequestLocation, onCities = onCities, onRetry = vm::refresh, onDemo = { vm.setDemoMode(true) }) }
+                    item { EmptyWeather(state, onLocation = onRequestLocation, onCities = onCities, onRetry = vm::refresh) }
                 } else {
-                    if (snapshot.isStale && !snapshot.isDemo) item {
+                    if (snapshot.isStale) item {
                         InfoStrip("正在显示已保存的天气", "网络或数据源暂时不可用，以下信息可能已过时。", "更新", vm::refresh, Modifier.widthIn(max = 1040.dp))
                     }
                     item { WeatherHero(snapshot, state.temperatureUnit, Modifier.widthIn(max = 1040.dp)
-                        .clip(RoundedCornerShape(24.dp)).clickable(onClickLabel = "查看天气实况详情") { onDetails("current") }, wide) }
+                        .clip(RoundedCornerShape(24.dp)).clickable(onClickLabel = "查看天气实况详情") { onDetails("current") }, wide, night) }
                     val cached = snapshot.isStale || state.errorMessage != null || clockMillis - snapshot.fetchedAt > 60 * 60 * 1000
                     val visibleWarnings = snapshot.warnings.filter { warning ->
                         val expiry = runCatching { OffsetDateTime.parse(warning.endTime).toInstant().toEpochMilli() }.getOrNull()
                         if (expiry != null) expiry > clockMillis else !cached
                     }
                     if (visibleWarnings.isNotEmpty()) item { WarningsCard(visibleWarnings, cached, Modifier.widthIn(max = 1040.dp)) }
-                    item { HourlyCard(snapshot.hourly, state.temperatureUnit, Modifier.widthIn(max = 1040.dp)
+                    item { HourlyCard(snapshot, state.temperatureUnit, Modifier.widthIn(max = 1040.dp)
                         .clickable(onClickLabel = "查看逐小时详情") { onDetails("hourly") }) }
                     item {
                         if (wide) Row(Modifier.widthIn(max = 1040.dp).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(18.dp), verticalAlignment = Alignment.Top) {
@@ -313,7 +308,7 @@ internal fun PanelHeading(title:String, caption:String?=null) {
 }
 
 @Composable
-private fun WeatherHero(snapshot:WeatherSnapshot, unit:TemperatureUnit, modifier:Modifier, wide:Boolean) {
+private fun WeatherHero(snapshot:WeatherSnapshot, unit:TemperatureUnit, modifier:Modifier, wide:Boolean, night:Boolean) {
     val now=snapshot.now
     val today=snapshot.daily.firstOrNull()
     Column(modifier.fillMaxWidth().padding(top=if(wide) 16.dp else 5.dp,bottom=12.dp)) {
@@ -325,12 +320,12 @@ private fun WeatherHero(snapshot:WeatherSnapshot, unit:TemperatureUnit, modifier
         val temperatureSize=minOf(if(wide)140f else 112f,available/fontScale/(number.length*.52f+.55f)).coerceAtLeast(38f)
         Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                Text(if(snapshot.isDemo) "样例天气" else observationTime(now.obsTime),color=SkyMuted,fontSize=12.sp,letterSpacing=.4.sp)
+                Text(observationTime(now.obsTime),color=SkyMuted,fontSize=12.sp,letterSpacing=.4.sp)
                 Text(buildAnnotatedString{append(number);withStyle(SpanStyle(fontSize=(temperatureSize*.38f).sp,letterSpacing=0.sp)){append(unit.symbol)}},
                     color=SkyWhite,fontSize=temperatureSize.sp,lineHeight=(temperatureSize*1.12f).sp,fontWeight=FontWeight.ExtraLight,letterSpacing=(-5).sp,maxLines=1,softWrap=false,
                     modifier=Modifier.padding(top=9.dp).clearAndSetSemantics{contentDescription="当前温度 ${unit.format(now.temp,true)}"})
             }
-            WeatherSymbol(now.icon,now.text,Modifier.size(symbolSize),night=isNight(snapshot))
+            WeatherSymbol(now.icon,now.text,Modifier.size(symbolSize),night=night)
         }
         }
         Text(now.text.ifBlank{"天气状态未知"},color=SkyWhite,fontSize=25.sp,fontWeight=FontWeight.Light,letterSpacing=2.sp,modifier=Modifier.padding(top=4.dp))
@@ -356,7 +351,8 @@ private fun StatusPill(glyph:Glyph,label:String) {
 }
 
 @Composable
-private fun HourlyCard(hours:List<HourlyForecast>,unit:TemperatureUnit,modifier:Modifier=Modifier) {
+private fun HourlyCard(snapshot:WeatherSnapshot,unit:TemperatureUnit,modifier:Modifier=Modifier) {
+    val hours = snapshot.hourly
     GlassCard(modifier) {
         PanelHeading("逐小时预报",if(hours.isNotEmpty())"${hours.size} 小时" else null)
         if(hours.isEmpty()) Text("逐小时预报暂不可用",color=SkyMuted,fontSize=14.sp)
@@ -368,7 +364,7 @@ private fun HourlyCard(hours:List<HourlyForecast>,unit:TemperatureUnit,modifier:
                     hours.forEachIndexed { index,hour ->
                         Column(Modifier.width(itemWidth).clearAndSetSemantics{contentDescription="${hourLabel(hour.fxTime)}，${hour.text}，${unit.format(hour.temp,true)}，降水概率 ${hour.pop.ifBlank{"未知"}}${if(hour.pop.isNotBlank())"%" else ""}"},horizontalAlignment=Alignment.CenterHorizontally) {
                             Text(hourLabel(hour.fxTime),color=if(index==0)SkyWhite else SkyMuted,fontSize=11.sp)
-                            WeatherSymbol(hour.icon,hour.text,Modifier.padding(vertical=11.dp).size(31.dp),night=isNightIcon(hour.icon))
+                            WeatherSymbol(hour.icon,hour.text,Modifier.padding(vertical=11.dp).size(31.dp),night=hourlyWeatherIsNight(hour, snapshot.city, snapshot.daily))
                             Text(unit.format(hour.temp),color=SkyWhite,fontSize=20.sp,fontWeight=FontWeight.Light,maxLines=1,softWrap=false)
                         }
                     }
@@ -491,7 +487,7 @@ private fun MetricCard(metric:Metric,modifier:Modifier) {
 @Composable
 private fun SunCard(snapshot:WeatherSnapshot,modifier:Modifier=Modifier,nowMillis:Long=System.currentTimeMillis()) {
     val today=snapshot.daily.firstOrNull()
-    val time = if (snapshot.isDemo) runCatching { OffsetDateTime.parse(snapshot.now.obsTime).toInstant().toEpochMilli() }.getOrDefault(nowMillis) else nowMillis
+    val time = nowMillis
     val solar = solarWindow(today?.sunrise.orEmpty(), today?.sunset.orEmpty(), today?.fxDate.orEmpty(), snapshot.city.tz, time)
     val phase = when (solar.phase) {
         SolarPhase.BEFORE_SUNRISE -> "日出前"
@@ -594,15 +590,15 @@ private fun InfoStrip(title:String,message:String,action:String,onAction:()->Uni
 }
 
 @Composable
-private fun EmptyWeather(state:WeatherUiState,onLocation:()->Unit,onCities:()->Unit,onRetry:()->Unit,onDemo:()->Unit) {
+private fun EmptyWeather(state:WeatherUiState,onLocation:()->Unit,onCities:()->Unit,onRetry:()->Unit) {
     GlassCard(Modifier.widthIn(max=600.dp).padding(top=35.dp)) {
         WeatherSymbol("101","多云",Modifier.align(Alignment.CenterHorizontally).size(130.dp))
         Text(if(state.isLoading)"正在获取天气…" else "从一座城市开始",color=SkyWhite,fontSize=25.sp,fontWeight=FontWeight.Light,modifier=Modifier.align(Alignment.CenterHorizontally).padding(top=22.dp))
-        Text(if(state.isLoading)"正在获取最新天气，请稍候。" else if(!state.backendConfigured)"实时天气服务尚未配置。你可以先浏览示例，或在配置完成后获取天气。" else "搜索想要关注的城市，或使用当前位置查看天气。",color=SkyMuted,fontSize=14.sp,lineHeight=24.sp,textAlign=TextAlign.Center,modifier=Modifier.padding(top=15.dp,bottom=26.dp))
+        Text(if(state.isLoading)"正在获取最新天气，请稍候。" else "搜索想要关注的城市，或使用当前位置查看天气。",color=SkyMuted,fontSize=14.sp,lineHeight=24.sp,textAlign=TextAlign.Center,modifier=Modifier.padding(top=15.dp,bottom=26.dp))
         if(!state.isLoading) {
             Button(onClick=onCities,modifier=Modifier.fillMaxWidth().heightIn(min=50.dp),colors=ButtonDefaults.buttonColors(containerColor=SkyWhite,contentColor=Color(0xFF31566F))) {Text("选择城市")}
-            TextButton(onClick=onLocation,enabled=!state.isDemo && state.backendConfigured,modifier=Modifier.fillMaxWidth(),colors=ButtonDefaults.textButtonColors(contentColor=SkyWhite)) {Text("使用当前位置")}
-            TextButton(onClick=if(state.backendConfigured)onRetry else onDemo,modifier=Modifier.fillMaxWidth(),colors=ButtonDefaults.textButtonColors(contentColor=SkyMuted)){Text(if(state.backendConfigured)"重新获取天气" else "浏览示例天气")}
+            TextButton(onClick=onLocation,modifier=Modifier.fillMaxWidth(),colors=ButtonDefaults.textButtonColors(contentColor=SkyWhite)) {Text("使用当前位置")}
+            TextButton(onClick=onRetry,modifier=Modifier.fillMaxWidth(),colors=ButtonDefaults.textButtonColors(contentColor=SkyMuted)){Text("重新获取天气")}
         } else CircularProgressIndicator(Modifier.align(Alignment.CenterHorizontally).size(26.dp),color=SkyWhite,strokeWidth=2.dp)
     }
 }
@@ -617,27 +613,8 @@ private fun dayLabel(value:String,timeZone:String):String = runCatching{
 private fun observationTime(value:String):String = if(value.isBlank())"实时天气" else "当地 ${hourLabel(value)} 观测"
 private fun value(text:String,unit:String):String = if(text.isBlank())"—" else text+unit
 private fun uvLabel(value:String?):String = when(value?.toFloatOrNull()?.takeIf{it.isFinite() && it>=0}){null->"暂无紫外线数据";in 0f..2.99f->"较弱";in 3f..5.99f->"中等 · 注意防晒";in 6f..7.99f->"较强 · 注意防晒";in 8f..10.99f->"很强 · 减少暴晒";else->"极强 · 避免暴晒"}
-private fun isNightIcon(icon:String):Boolean = icon in setOf("150","151","152","153","350","351","456","457")
-private fun isNight(snapshot:WeatherSnapshot):Boolean = if(snapshot.isDemo) DemoWeather.scenario(snapshot.city).night else isNightIcon(snapshot.now.icon) || runCatching{OffsetDateTime.parse(snapshot.now.obsTime).hour.let{it<6||it>=19}}.getOrDefault(false)
 private fun warningColor(value:String):Color = when(value.lowercase()){ "red","红色"->Color(0xFFFFA6A1);"orange","橙色"->Color(0xFFFFC19C);"yellow","黄色"->Color(0xFFF4DF9B);else->Color(0xFFA6D9FA)}
 private fun partialFailureText(code:String):String {
     val name=when(code.substringBeforeLast('_')){"now"->"实时天气";"hourly"->"逐小时预报";"daily"->"每日预报";"air"->"空气质量";"warnings"->"天气预警";"indices"->"生活指数";else->null}
     return if(name==null) "部分天气信息暂不可用" else when(code.substringAfterLast('_')){"disabled"->"此服务暂未提供$name";"stale"->"${name}正在显示缓存信息";else->"${name}暂时无法更新"}
-}
-
-@Preview(name="随想天气 · 手机",showBackground=true,widthDp=393,heightDp=852)
-@Preview(name="随想天气 · 大字体",showBackground=true,widthDp=393,heightDp=852,fontScale=1.6f)
-@Composable
-private fun WeatherPreview() {
-    val sample=com.thinkingweather.android.data.DemoWeather.create(
-        DefaultCities.beijing,java.time.Instant.parse("2026-10-28T03:00:00Z").toEpochMilli())
-    ThinkingWeatherTheme {
-        LazyColumn(Modifier.fillMaxSize().background(Brush.verticalGradient(weatherBackgroundColors(weatherCategory(sample.now.icon,sample.now.text)))),contentPadding=PaddingValues(22.dp),verticalArrangement=Arrangement.spacedBy(18.dp)) {
-            item {WeatherToolbar(WeatherUiState(snapshot=sample,isDemo=true,isLoading=false),Modifier,{}, {})}
-            item {InfoStrip("示例预览 · 非实时天气","当前展示内置样例，请勿用于出行决策。","说明",{})}
-            item {WeatherHero(sample,TemperatureUnit.CELSIUS,Modifier,false)}
-            item {HourlyCard(sample.hourly,TemperatureUnit.CELSIUS)}
-            item {DailyCard(sample.daily,TemperatureUnit.CELSIUS)}
-        }
-    }
 }

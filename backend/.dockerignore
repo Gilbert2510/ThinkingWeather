@@ -1,6 +1,0 @@
-**
-!Dockerfile
-!build/
-!build/install/
-!build/install/backend/
-!build/install/backend/**

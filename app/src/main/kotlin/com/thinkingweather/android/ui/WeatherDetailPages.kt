@@ -68,11 +68,11 @@ internal fun PrivacyPage(onBack: () -> Unit) {
                     DetailText("拒绝或关闭定位权限后，仍可手动搜索城市。你可以在系统的应用权限设置中随时撤回授权。", Modifier.padding(top = 12.dp))
                 } }
                 item { SettingsSection("本地数据") {
-                    DetailText("收藏城市、温度单位、示例预览偏好和最近的天气缓存在此设备保存，方便下次打开与离线查看。")
+                    DetailText("收藏城市、温度单位、定位城市标记和最近的天气缓存在此设备保存，方便下次打开与离线查看。")
                     DetailText("可在「我的城市」中移除收藏；清除应用数据或卸载应用可删除全部本地内容。系统云备份已关闭。", Modifier.padding(top = 12.dp))
                 } }
                 item { SettingsSection("网络与天气服务") {
-                    DetailText("真实天气查询会将城市、搜索文本或大致坐标发送到天气服务，服务提供方也会收到网络连接信息。示例预览使用本地数据，不发送天气查询或位置。")
+                    DetailText("天气查询会将城市、搜索文本或大致坐标通过阿里云函数计算代理发送至和风天气，服务提供方也会收到网络连接信息。开发者凭据仅保存在云函数环境变量中。")
                     DetailText("前台读取网络状态仅用于识别可用网络及移动流量提示，不读取网络名称、SIM 身份或流量账单，也不上传这些网络状态。离开前台即停止监听。", Modifier.padding(top = 12.dp))
                 } }
                 item { SettingsSection("信息使用") {
@@ -86,7 +86,7 @@ internal fun PrivacyPage(onBack: () -> Unit) {
 @Composable
 internal fun AboutPage(state: WeatherUiState, onBack: () -> Unit) {
     val uri = LocalUriHandler.current
-    val liveSnapshot = state.snapshot?.takeUnless { it.isDemo }
+    val liveSnapshot = state.snapshot
     val sources = (liveSnapshot?.sources.orEmpty() + state.citySummaries.values.flatMap { it.sources })
         .filter(String::isNotBlank).distinct().ifEmpty { listOf("和风天气") }
     val licenses = (liveSnapshot?.licenses.orEmpty() + state.citySummaries.values.flatMap { it.licenses })
@@ -114,7 +114,6 @@ internal fun AboutPage(state: WeatherUiState, onBack: () -> Unit) {
                 }
                 item { SettingsSection("天气数据") {
                     DetailText("实时天气数据由和风天气提供。预报受到地区覆盖、观测时间与服务可用性的影响，请以当地官方发布为准。")
-                    if (state.isDemo) DetailText("示例预览使用内置样例，所有数值均为非实时数据，不用于出行或安全决策。", Modifier.padding(top = 12.dp))
                     TextButton(onClick = { runCatching { uri.openUri(validatedDataLink(liveSnapshot?.sourceUrl.orEmpty()) ?: "https://www.qweather.com/") } },
                         contentPadding = PaddingValues(vertical = 10.dp, horizontal = 0.dp), modifier = Modifier.padding(top = 8.dp)) {
                         Text("和风天气", fontSize = 13.sp)

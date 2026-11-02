@@ -6,4 +6,4 @@ dependencyResolutionManagement {
     repositories { google(); mavenCentral() }
 }
 rootProject.name = "ThinkingWeather"
-include(":app", ":backend")
+include(":app")

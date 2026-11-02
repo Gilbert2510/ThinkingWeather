@@ -29,7 +29,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.thinkingweather.android.model.*
-import java.time.OffsetDateTime
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -58,7 +57,6 @@ internal fun WeatherInsightsPage(snapshot: WeatherSnapshot, unit: TemperatureUni
             Box(Modifier.padding(horizontal = 22.dp)) {
                 val observation = insightTime(snapshot.now.obsTime, snapshot.city.tz)
                 PageHeader("天气详情", snapshot.city.name + when {
-                    snapshot.isDemo -> " · 示例数据"
                     observation != "—" -> " · 当地 $observation 观测"
                     else -> " · 天气概览"
                 }, onBack)
@@ -90,7 +88,7 @@ internal fun WeatherInsightsPage(snapshot: WeatherSnapshot, unit: TemperatureUni
                         }
                     }
                 } }
-                item { Text("数据由和风天气提供" + if (snapshot.isDemo) " · 当前为示例数据" else if (snapshot.isStale) " · 当前为缓存数据" else "",
+                item { Text("数据由和风天气提供" + if (snapshot.isStale) " · 当前为缓存数据" else "",
                     color = palette.muted, fontSize = 11.sp, modifier = Modifier.fillMaxWidth().padding(top = 3.dp)) }
             }
         }
@@ -111,6 +109,9 @@ private fun InsightCard(title: String, caption: String? = null, palette: Insight
 @Composable
 private fun CurrentInsight(snapshot: WeatherSnapshot, unit: TemperatureUnit, palette: InsightPalette) {
     val now = snapshot.now
+    val clockMillis by produceState(System.currentTimeMillis()) {
+        while (true) { value = System.currentTimeMillis(); delay(60_000) }
+    }
     val fontScale = LocalDensity.current.fontScale
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(27.dp))
@@ -123,13 +124,12 @@ private fun CurrentInsight(snapshot: WeatherSnapshot, unit: TemperatureUnit, pal
                         Text(unit.format(now.temp, true), color = SkyWhite, fontSize = temperatureSize.sp, fontWeight = FontWeight.Light, maxLines = 1)
                         if (now.text.isNotBlank()) Text(now.text, color = SkyWhite, fontSize = 20.sp, modifier = Modifier.padding(top = 4.dp))
                     }
-                    if (now.text.isNotBlank()) WeatherSymbol(now.icon, now.text, Modifier.size(70.dp), night = now.icon in setOf("150", "151", "152", "153", "350", "351", "456", "457"))
+                    if (now.text.isNotBlank()) WeatherSymbol(now.icon, now.text, Modifier.size(70.dp), night = currentWeatherIsNight(snapshot, clockMillis))
                 }
             }
             val observed = insightTime(now.obsTime, snapshot.city.tz, true)
             val acquired = insightTime(java.time.Instant.ofEpochMilli(snapshot.fetchedAt).toString(), snapshot.city.tz, true)
-            Text(if (snapshot.isDemo) "示例预览，非实时天气" else
-                (if (observed != "—") "$observed · 当地观测时间" else "获取于 $acquired · 当地时间") + if (snapshot.isStale) " · 缓存" else "",
+            Text((if (observed != "—") "$observed · 当地观测时间" else "获取于 $acquired · 当地时间") + if (snapshot.isStale) " · 缓存" else "",
                 color = SkyMuted, fontSize = 11.sp, modifier = Modifier.padding(top = 18.dp))
         }
         val values = buildList {
@@ -175,7 +175,7 @@ private fun HourlyInsight(snapshot: WeatherSnapshot, unit: TemperatureUnit, pale
                     .clickable { selectedHour = index }.semantics { this.selected = index == selected }.padding(horizontal = 11.dp, vertical = 13.dp),
                     horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(insightTime(hour.fxTime, snapshot.city.tz), color = palette.muted, fontSize = 11.sp)
-                    if (hour.text.isNotBlank()) WeatherSymbol(hour.icon, hour.text, Modifier.padding(vertical = 9.dp).size(31.dp), night = hour.icon in setOf("150", "151", "152", "153", "350", "351", "456", "457"))
+                    if (hour.text.isNotBlank()) WeatherSymbol(hour.icon, hour.text, Modifier.padding(vertical = 9.dp).size(31.dp), night = hourlyWeatherIsNight(hour, snapshot.city, snapshot.daily))
                     if (insightNumber(hour.temp) != null) Text(unit.format(hour.temp), color = palette.text, fontSize = 19.sp, maxLines = 1)
                     if (hour.text.isNotBlank()) Text(hour.text, color = palette.muted, fontSize = 10.sp, modifier = Modifier.padding(top = 5.dp))
                     if (insightNumber(hour.pop, 0f, 100f) != null) Text("降水 ${hour.pop}%", color = palette.blue, fontSize = 10.sp, modifier = Modifier.padding(top = 8.dp))
@@ -346,7 +346,7 @@ private fun UltravioletInsight(snapshot: WeatherSnapshot, palette: InsightPalett
 private fun SolarInsight(snapshot: WeatherSnapshot, palette: InsightPalette) {
     val day = snapshot.daily.firstOrNull { it.sunrise.isNotBlank() || it.sunset.isNotBlank() || it.moonPhase.isNotBlank() } ?: return
     val now by produceState(System.currentTimeMillis()) { while (true) { value = System.currentTimeMillis(); delay(60_000) } }
-    val time = if (snapshot.isDemo) runCatching { OffsetDateTime.parse(snapshot.now.obsTime).toInstant().toEpochMilli() }.getOrDefault(now) else now
+    val time = now
     val solar = solarWindow(day.sunrise, day.sunset, day.fxDate, snapshot.city.tz, time)
     InsightCard("日出日落与月相", "${insightDate(day.fxDate)} · ${snapshot.city.tz} 当地时间", palette) {
         if (day.sunrise.isNotBlank() || day.sunset.isNotBlank()) Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(Brush.verticalGradient(listOf(Color(0xFF2E658A), Color(0xFF21465F)))).padding(horizontal = 15.dp, vertical = 14.dp)) {

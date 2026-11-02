@@ -46,14 +46,14 @@ object WeatherJson {
     fun cachedCurrentSummary(value: JSONObject): CityWeatherSummary =
         currentSummary(value.toString(), city(value.getJSONObject("city")), value.getLong("fetchedAt"))
 
-    fun snapshot(json: String, city: City, fetchedAt: Long = System.currentTimeMillis(), isDemo: Boolean = false): WeatherSnapshot {
+    fun snapshot(json: String, city: City, fetchedAt: Long = System.currentTimeMillis()): WeatherSnapshot {
         val root = JSONObject(json)
         checkCode(root)
         val current = root.optJSONObject("now") ?: throw JSONException("缺少实时天气")
         val temperature = current.string("temp").toDoubleOrNull()
         if (temperature == null || !temperature.isFinite()) throw JSONException("实时温度无效")
         val refer = root.optJSONObject("refer")
-        val sourceUrl = if (isDemo) "" else root.string("fxLink").ifBlank { "https://www.qweather.com/" }
+        val sourceUrl = root.string("fxLink").ifBlank { "https://www.qweather.com/" }
         return WeatherSnapshot(
             city = city,
             now = CurrentWeather(current.string("obsTime"), current.string("temp"), current.string("feelsLike"),
@@ -83,7 +83,7 @@ object WeatherJson {
             fetchedAt = root.string("fetchedAt").let { raw -> raw.toLongOrNull()
                 ?: runCatching { Instant.parse(raw).toEpochMilli() }.getOrNull()
                 ?: runCatching { OffsetDateTime.parse(raw).toInstant().toEpochMilli() }.getOrNull()
-                ?: fetchedAt }, isDemo = isDemo, sourceUrl = sourceUrl,
+                ?: fetchedAt }, sourceUrl = sourceUrl,
             partialFailures = root.optJSONArray("partialFailures").strings(),
             sources = refer?.optJSONArray("sources").strings(), licenses = refer?.optJSONArray("license").strings(),
             isStale = root.optBoolean("stale", false), serverCacheAgeSeconds = root.optLong("cacheAgeSeconds", 0),
@@ -131,7 +131,7 @@ object WeatherJson {
 
     fun encodeSnapshot(value: WeatherSnapshot): JSONObject {
         val now = value.now
-        return JSONObject().put("city", encodeCity(value.city)).put("fetchedAt", value.fetchedAt).put("isDemo", value.isDemo)
+        return JSONObject().put("city", encodeCity(value.city)).put("fetchedAt", value.fetchedAt)
             .put("stale", value.isStale).put("cacheAgeSeconds", value.serverCacheAgeSeconds)
             .put("fxLink", value.sourceUrl).put("partialFailures", JSONArray(value.partialFailures))
             .put("refer", JSONObject().put("sources", JSONArray(value.sources)).put("license", JSONArray(value.licenses)))
@@ -166,9 +166,10 @@ object WeatherJson {
                 .put("healthEffect", air.healthEffect).put("generalAdvice", air.generalAdvice).put("sensitiveAdvice", air.sensitiveAdvice)) } }
     }
 
-    fun cachedSnapshot(value: JSONObject): WeatherSnapshot = snapshot(
-        value.toString(), city(value.getJSONObject("city")), value.getLong("fetchedAt"), value.optBoolean("isDemo", false),
-    )
+    fun cachedSnapshot(value: JSONObject): WeatherSnapshot {
+        if (value.optBoolean("isDemo", false)) throw JSONException("旧示例缓存不作为真实天气加载")
+        return snapshot(value.toString(), city(value.getJSONObject("city")), value.getLong("fetchedAt"))
+    }
 
     private fun checkCode(value: JSONObject) {
         val code = value.string("code")

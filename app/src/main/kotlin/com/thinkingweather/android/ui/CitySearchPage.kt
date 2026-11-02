@@ -28,7 +28,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.thinkingweather.android.WeatherUiState
 import com.thinkingweather.android.WeatherViewModel
-import com.thinkingweather.android.data.DemoWeather
 import com.thinkingweather.android.data.WeatherStore
 import com.thinkingweather.android.model.City
 import com.thinkingweather.android.model.DefaultCities
@@ -55,15 +54,13 @@ internal fun CitySearchPage(state: WeatherUiState, vm: WeatherViewModel, onBack:
     var international by rememberSaveable { mutableStateOf(false) }
     fun choose(city: City) { vm.addCity(city); vm.setSearchQuery(""); keyboard?.hide(); onSelected() }
     val query = state.searchQuery.trim()
-    val results = if (state.isDemo) DemoWeather.catalog.filter { scenario ->
-        scenario.city.name.contains(query) || scenario.text.contains(query) || state.searchResults.any { it.location == scenario.city.location }
-    }.map { it.city } else state.searchResults
+    val results = state.searchResults
     Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         Column(Modifier.fillMaxSize().safeDrawingPadding().imePadding().padding(horizontal = 22.dp)) {
-            PageHeader("搜索城市", if (state.isDemo) "搜索城市或天气，探索全部示例" else "找到下一座关心的城市", onBack)
+            PageHeader("搜索城市", "找到下一座关心的城市", onBack)
             OutlinedTextField(value = state.searchQuery, onValueChange = vm::setSearchQuery,
                 modifier = Modifier.fillMaxWidth().padding(top = 12.dp).testTag("city-search-input"), singleLine = true,
-                placeholder = { Text(if (state.isDemo) "城市、拼音或天气" else "城市、区县或拼音", fontSize = 14.sp) },
+                placeholder = { Text("城市、区县或拼音", fontSize = 14.sp) },
                 leadingIcon = { LineIcon(Glyph.Search, color = MaterialTheme.colorScheme.onSurfaceVariant) },
                 trailingIcon = { if (query.isNotEmpty()) IconButton(onClick = { vm.setSearchQuery("") },
                     modifier = Modifier.semantics { contentDescription = "清空搜索" }) { LineIcon(Glyph.Close, color = MaterialTheme.colorScheme.onSurfaceVariant) } },
@@ -81,15 +78,13 @@ internal fun CitySearchPage(state: WeatherUiState, vm: WeatherViewModel, onBack:
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                             row.forEach { city ->
                                 val saved = state.cities.any { it.location == city.location }
-                                val enabled = (!state.isDemo || !international) && (state.isDemo || saved || state.cities.size < WeatherStore.MAX_CITIES)
-                                PopularCityTile(city, international, enabled, saved && !state.isDemo, Modifier.weight(1f)) { choose(city) }
+                                val enabled = saved || state.cities.size < WeatherStore.MAX_CITIES
+                                PopularCityTile(city, international, enabled, saved, Modifier.weight(1f)) { choose(city) }
                             }
                             repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
                         }
                     }
                     item { Text(when {
-                        state.isDemo && international -> "国际城市使用实时天气，请在设置中关闭示例预览后添加。"
-                        state.isDemo -> "热门城市展示固定示例，不会修改真实收藏。"
                         state.cities.size >= WeatherStore.MAX_CITIES -> "已保存 ${WeatherStore.MAX_CITIES} 个城市，请先在编辑中删除一座再添加。"
                         else -> "也可以输入完整中文名、区县名或城市拼音。"
                     }, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp, lineHeight = 20.sp, modifier = Modifier.padding(top = 10.dp)) }
@@ -109,13 +104,13 @@ internal fun CitySearchPage(state: WeatherUiState, vm: WeatherViewModel, onBack:
                             fontSize = 13.sp, lineHeight = 21.sp, modifier = Modifier.padding(vertical = 18.dp)) }
                         results.isEmpty() -> item { Column(Modifier.fillMaxWidth().padding(vertical = 28.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                             Text("还没找到这座城市", fontSize = 17.sp)
-                            Text(if (state.isDemo) "试试「晴」「雪」或城市拼音" else "试试完整中文名或拼音", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp, modifier = Modifier.padding(top = 9.dp))
+                            Text("试试完整中文名或拼音", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp, modifier = Modifier.padding(top = 9.dp))
                         } }
                     }
                     if (!state.isSearching) items(results, key = City::location) { city ->
                         val saved = state.cities.any { it.location == city.location }
-                        val enabled = state.isDemo || saved || state.cities.size < WeatherStore.MAX_CITIES
-                        CitySearchResult(city, !state.isDemo && saved, enabled, state.isDemo) { choose(city) }
+                        val enabled = saved || state.cities.size < WeatherStore.MAX_CITIES
+                        CitySearchResult(city, saved, enabled) { choose(city) }
                     }
                 }
             }
@@ -136,14 +131,14 @@ private fun PopularCityTile(city: City, international: Boolean, enabled: Boolean
 }
 
 @Composable
-private fun CitySearchResult(city: City, saved: Boolean, enabled: Boolean, demo: Boolean, onClick: () -> Unit) {
+private fun CitySearchResult(city: City, saved: Boolean, enabled: Boolean, onClick: () -> Unit) {
     Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(17.dp)).background(MaterialTheme.colorScheme.surfaceContainer)
         .clickable(enabled = enabled, onClick = onClick).padding(horizontal = 16.dp, vertical = 17.dp), verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
             Text(city.name, fontSize = 17.sp, color = MaterialTheme.colorScheme.onSurface)
             Text(city.description.ifBlank { "城市 / 地区" }, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 5.dp))
         }
-        Text(if (demo) "预览" else if (saved) "已保存" else if (enabled) "添加" else "已达上限", fontSize = 12.sp,
+        Text(if (saved) "已保存" else if (enabled) "添加" else "已达上限", fontSize = 12.sp,
             color = if (enabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(start = 12.dp))
     }
 }

@@ -5,7 +5,7 @@ import androidx.compose.ui.test.hasScrollToIndexAction
 import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.hasTestTag
-import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
@@ -22,38 +22,51 @@ import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipeDown
 import androidx.compose.ui.geometry.Offset
-import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.ViewModelStore
+import android.app.Application
+import com.thinkingweather.android.ui.WeatherApp
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
-import com.thinkingweather.android.data.WeatherStore
-import com.thinkingweather.android.data.DemoWeather
-import com.thinkingweather.android.model.DefaultCities
+import com.thinkingweather.android.data.*
+import com.thinkingweather.android.data.TestWeather
+import com.thinkingweather.android.model.*
 import com.thinkingweather.android.model.TemperatureUnit
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import org.junit.Rule
 import org.junit.Test
+import org.junit.Before
+import org.junit.After
 import org.junit.Assert.assertEquals
-import org.junit.rules.RuleChain
-import org.junit.rules.TestRule
-import org.junit.runner.Description
 import org.junit.runner.RunWith
-import org.junit.runners.model.Statement
 import java.io.File
 
-/** Exercises the actual activity and UI, using explicitly selected local sample weather. */
+/** Exercises production UI through ordinary dependencies; no network or real preferences are touched. */
 @RunWith(AndroidJUnit4::class)
 class WeatherSmokeTest {
-    private val compose = createAndroidComposeRule<MainActivity>()
-
-    // Configure before launching the activity: these tests never depend on a gateway or location.
     @get:Rule
-    val rules: RuleChain = RuleChain.outerRule(DemoFixtureRule()).around(compose)
+    val compose = createComposeRule()
+    private val preferences = MemoryWeatherPreferences()
+    private val viewModels = ViewModelStore()
+    private lateinit var viewModel: WeatherViewModel
+
+    @Before fun launchIsolatedUi() {
+        val app = InstrumentationRegistry.getInstrumentation().targetContext.applicationContext as Application
+        InstrumentationRegistry.getInstrumentation().runOnMainSync {
+            viewModel = WeatherViewModel(app, FixtureWeatherSource(), preferences, MemoryCitySummaryCache())
+            viewModels.put("weather-ui", viewModel)
+        }
+        compose.setContent { WeatherApp(viewModel, onRequestLocation = {}) }
+    }
+
+    @After fun closeIsolatedDependencies() {
+        InstrumentationRegistry.getInstrumentation().runOnMainSync { viewModels.clear() }
+    }
 
     @Test
-    fun sampleWeatherIsClearlyLabelledAndForecastsAreReadable() {
+    fun forecastsAreReadableWithoutRuntimePreview() {
         waitForDescription("当前温度 16℃")
-        compose.onNodeWithText("示例预览 · 非实时天气").assertIsDisplayed()
+        compose.onNodeWithText("示例预览").assertDoesNotExist()
         compose.onNodeWithContentDescription("当前温度 16℃").assertIsDisplayed()
         capture("home-sunny")
 
@@ -86,11 +99,11 @@ class WeatherSmokeTest {
         waitForDescription("当前温度 28℃")
         compose.onNodeWithContentDescription("管理城市，当前 深圳").assertIsDisplayed()
         compose.onNodeWithContentDescription("当前温度 28℃").assertIsDisplayed()
-        compose.onNodeWithText("示例预览 · 非实时天气").assertIsDisplayed()
+        compose.onNodeWithText("示例预览").assertDoesNotExist()
         val persisted = runBlocking(Dispatchers.IO) {
-            WeatherStore(compose.activity, true).read()
+            preferences.read()
         }
-        assertEquals(DefaultCities.initial.map { it.location }, persisted.cities.map { it.location })
+        assertEquals((DefaultCities.initial + DefaultCities.shenzhen).map { it.location }, persisted.cities.map { it.location })
     }
 
     @Test
@@ -107,7 +120,7 @@ class WeatherSmokeTest {
     }
 
     @Test
-    fun pagesReturnToHomeAndPreviewIncludesOvercastShanghai() {
+    fun pagesReturnToHomeAndSelectedShanghaiUsesItsOwnWeather() {
         waitForDescription("当前温度 16℃")
         compose.onNodeWithText("随 想  /  WEATHER").assertIsDisplayed()
         compose.onNodeWithContentDescription("刷新天气").assertDoesNotExist()
@@ -129,6 +142,8 @@ class WeatherSmokeTest {
         waitForDescription("当前温度 16℃")
         compose.onNodeWithContentDescription("设置").performClick()
         compose.onNodeWithText("操作方式").assertDoesNotExist()
+        compose.onNodeWithText("数据模式").assertDoesNotExist()
+        compose.onNodeWithText("示例预览").assertDoesNotExist()
         compose.onNodeWithText("隐私与位置").assertDoesNotExist()
         compose.onNode(hasScrollToIndexAction()).performScrollToNode(hasText("隐私"))
         compose.onNodeWithText("隐私").performClick()
@@ -153,7 +168,7 @@ class WeatherSmokeTest {
         waitForDescription("当前温度 16℃")
         compose.onNodeWithTag("refresh-header").assertDoesNotExist()
         compose.onNodeWithText("松开刷新").assertDoesNotExist()
-        val viewModel = ViewModelProvider(compose.activity)[WeatherViewModel::class.java]
+        val viewModel = this.viewModel
         var previousFetch = 0L
         compose.runOnIdle { previousFetch = viewModel.uiState.value.snapshot!!.fetchedAt }
         compose.onNodeWithTag("weather-scroll").performScrollToNode(hasText("每日预报"))
@@ -190,9 +205,9 @@ class WeatherSmokeTest {
     @Test
     fun stormSnowAndNightScenariosCanBeBrowsedFromTheCityPage() {
         waitForDescription("当前温度 16℃")
-        val viewModel = ViewModelProvider(compose.activity)[WeatherViewModel::class.java]
+        val viewModel = this.viewModel
         for ((cityName, filename) in listOf("厦门" to "home-thunderstorm", "哈尔滨" to "home-snow", "天津" to "home-night")) {
-            val scenario = DemoWeather.catalog.first { it.city.name == cityName }
+            val scenario = TestWeather.catalog.first { it.city.name == cityName }
             compose.onNodeWithContentDescription("管理城市").performClick()
             compose.onNodeWithContentDescription("搜索城市").performClick()
             compose.onNode(hasSetTextAction()).performTextInput(cityName)
@@ -229,10 +244,12 @@ class WeatherSmokeTest {
     @Test
     fun locationMessageCollapsesAfterThreeSeconds() {
         waitForDescription("当前温度 16℃")
-        val viewModel = ViewModelProvider(compose.activity)[WeatherViewModel::class.java]
+        val viewModel = this.viewModel
         compose.runOnIdle { viewModel.reportLocationError("已定位到北京") }
         waitForText("已定位到北京")
         compose.onNodeWithTag("location-message").assertIsDisplayed()
+        compose.mainClock.advanceTimeBy(3_400)
+        compose.waitForIdle()
         compose.waitUntil(timeoutMillis = 6_000) {
             compose.onAllNodesWithText("已定位到北京").fetchSemanticsNodes().isEmpty()
         }
@@ -254,9 +271,7 @@ class WeatherSmokeTest {
     @Test
     fun cityEditorReordersAndDeletesABatchWhileKeepingOneCity() {
         waitForDescription("当前温度 16℃")
-        val viewModel = ViewModelProvider(compose.activity)[WeatherViewModel::class.java]
-        compose.runOnIdle { viewModel.setDemoMode(false) }
-        compose.waitUntil(timeoutMillis = 10_000) { !viewModel.uiState.value.isDemo }
+        val viewModel = this.viewModel
         compose.onNodeWithContentDescription("管理城市").performClick()
         compose.onNodeWithContentDescription("定位城市", substring = true).assertIsDisplayed()
         compose.onNodeWithText("编辑").performClick()
@@ -308,7 +323,7 @@ class WeatherSmokeTest {
     private fun capture(name: String) {
         compose.mainClock.advanceTimeBy(800)
         compose.waitForIdle()
-        val directory = File(compose.activity.getExternalFilesDir(null), "validation").apply { mkdirs() }
+        val directory = File(InstrumentationRegistry.getInstrumentation().targetContext.getExternalFilesDir(null), "validation").apply { mkdirs() }
         File(directory, "$name.png").outputStream().use { output ->
             check(compose.onRoot().captureToImage().asAndroidBitmap().compress(android.graphics.Bitmap.CompressFormat.PNG, 100, output))
         }
@@ -327,28 +342,37 @@ class WeatherSmokeTest {
     }
 }
 
-private class DemoFixtureRule : TestRule {
-    override fun apply(base: Statement, description: Description): Statement = object : Statement() {
-        override fun evaluate() {
-            val context = InstrumentationRegistry.getInstrumentation().targetContext
-            val store = WeatherStore(context, BuildConfig.WEATHER_BASE_URL.isNotBlank())
-            val original = runBlocking(Dispatchers.IO) { store.read() }
-            try {
-                runBlocking(Dispatchers.IO) {
-                    store.setDemo(true)
-                    store.setUnit(TemperatureUnit.CELSIUS)
-                    store.setCities(DefaultCities.initial, DefaultCities.beijing)
-                    store.setLocatedCity(DefaultCities.beijing.location)
-                }
-                base.evaluate()
-            } finally {
-                runBlocking(Dispatchers.IO) {
-                    store.setDemo(original.isDemo)
-                    store.setUnit(original.unit)
-                    store.setCities(original.cities, original.selectedCity)
-                    store.setLocatedCity(original.locatedCityLocation)
-                }
-            }
-        }
+
+/** In-memory persistence keeps tests deterministic and leaves the installed app's data untouched. */
+private class MemoryWeatherPreferences : WeatherPreferences {
+    @Volatile private var value = SavedWeatherState(DefaultCities.initial, DefaultCities.beijing,
+        TemperatureUnit.CELSIUS, DefaultCities.beijing.location)
+    private val weather = java.util.concurrent.ConcurrentHashMap<String, WeatherSnapshot>()
+    override suspend fun read() = value
+    override suspend fun setCities(cities: List<City>, selected: City, locatedCityLocation: String?) {
+        value = value.copy(cities = cities, selectedCity = selected, locatedCityLocation = locatedCityLocation)
     }
+    override suspend fun setUnit(unit: TemperatureUnit) { value = value.copy(unit = unit) }
+    override suspend fun cached(city: City) = weather[city.location]
+    override suspend fun cachedAll() = weather.values.toList()
+    override suspend fun save(snapshot: WeatherSnapshot) { weather[snapshot.city.location] = snapshot }
+}
+
+private class MemoryCitySummaryCache : CitySummaryCache {
+    @Volatile private var cards = emptyList<CityWeatherSummary>()
+    override suspend fun read() = cards
+    override suspend fun save(cards: Collection<CityWeatherSummary>) { this.cards = cards.toList() }
+}
+
+private class FixtureWeatherSource : WeatherDataSource {
+    override val networkUnavailable = false
+    override suspend fun weather(city: City) = TestWeather.create(city)
+    override suspend fun currentSummary(city: City) = CityWeatherSummary.from(TestWeather.create(city))
+    override suspend fun search(query: String): List<City> {
+        val aliases = mapOf("beijing" to "北京", "shanghai" to "上海", "hangzhou" to "杭州",
+            "shenzhen" to "深圳", "xiamen" to "厦门", "haerbin" to "哈尔滨", "tianjin" to "天津")
+        val normalized = aliases[query.lowercase()] ?: query
+        return TestWeather.catalog.map { it.city }.filter { it.name.contains(normalized) }
+    }
+    override fun close() = Unit
 }

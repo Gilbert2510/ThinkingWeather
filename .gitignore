@@ -55,3 +55,10 @@ replay_pid*
 *.bak
 *~
 .vscode/
+
+# Serverless runtime dependencies, coverage and cloud CLI state
+node_modules/
+coverage/
+.serverless/
+.s/
+.fc/
