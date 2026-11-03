@@ -28,6 +28,10 @@
 
 最初提供的代理始终返回 HTTP 200，因此也必须查看和风 JSON 的 `code`。客户端保留这一兼容检查；仓库替换函数会进一步把业务错误映射成正确 HTTP 状态。无法仅凭某一次 429 判断是欠费、FC 并发还是和风额度，需要控制台证据。
 
+## 预警 `400 invalid_query`
+
+1.2.0 修复旧代理的预警参数白名单遗漏：官方支持 `localTime`，早期函数仅接受 `lang`。客户端现在省略此可选参数，因此兼容当前函数；源码代理已补齐规则。空预警 `metadata.zeroResult=true / alerts=[]` 是正常结果。不要通过隐藏所有错误来处理，真实权限/限流/网络问题仍应保留提示。示例与依据见 [WEATHER_MAP.md](WEATHER_MAP.md)。
+
 ## 更换服务地址
 
 默认地址已包含在公开构建配置中；它是公开入口，不是密钥。若将来迁移到其他函数或自定义域名，使用 Gradle 属性 `-PWEATHER_BASE_URL=https://新地址`，重新生成并验证 APK/AAB。只支持 HTTPS，不支持本地 HTTP，也不读取旧 `WEATHER_DEBUG_BASE_URL`。

@@ -1,6 +1,6 @@
 # 项目结构与逐文件职责
 
-本文按 1.1.0 的 Serverless 运行结构说明。路径相对仓库根 `Weather/`，Gradle 根工程名为 ThinkingWeather；版本、签名身份及源码许可证保持独立管理。旧本机后端归档、真实凭据、安装包和构建缓存不属于应提交的源码。
+本文按 1.2.0 的 Serverless 运行结构说明。路径相对仓库根 `Weather/`，Gradle 根工程名为 ThinkingWeather；版本、签名身份及源码许可证保持独立管理。旧本机后端归档、真实凭据、安装包和构建缓存不属于应提交的源码。
 
 ## 目录
 
@@ -53,6 +53,7 @@ Weather/
 | 文件 | 职责 |
 | --- | --- |
 | MainActivity.kt | Activity 生命周期、Compose 入口、主动位置权限/获取和网络提示 |
+| WeatherMapActivity.kt | 独立原生 WebView 窗口、稳定视口、安全设置、生命周期、加载/错误/重试及浏览器后备入口 |
 | WeatherViewModel.kt | 当前城市与天气状态、请求代次、取消、定位结果、批量编辑和持久化协调 |
 | data/WeatherRepository.kt | 公网 raw API 请求、受限响应、并发、缓存/合并、429 冷却、核心与可选响应聚合 |
 | data/QWeatherMapping.kt | Weather v1/v7 字段、单位、空气/预警/生活指数和归属规范化 |
@@ -65,11 +66,12 @@ Weather/
 | model/WeatherModels.kt | 城市、实况、预报、空气、生活指数、单位、天气分类及风向模型 |
 | model/SolarWindow.kt | 城市日期/时区下的日照阶段与太阳进度计算，缺失/夜间不伪造位置 |
 | model/WeatherDaylight.kt | 结合城市时区、对应日期日照与各小时预报时间判定昼夜，兼容 v1 统一天气图标 |
-| network/NetworkState.kt | 有效互联网、移动流量/离线分类和提示文字 |
+| network/NetworkState.kt | 有效互联网、移动流量/离线分类、提示文字与一次性提醒规则 |
 | network/NetworkMonitor.kt | 前台 ConnectivityManager 监听和网络回调注销 |
-| ui/WeatherApp.kt | 页面路由、主页固定栏、天气卡片与详情入口、定位提示收起 |
-| ui/CityManagement.kt | 收藏浏览/编辑、位置标记、全选/确认删除、拖拽与无障碍重排 |
-| ui/CitySearchPage.kt | 独立城市搜索、国内/国际热门目录与选择 |
+| network/WeatherMapPolicy.kt | 官方地图 HTTPS 导航边界与外部链接检查 |
+| ui/WeatherApp.kt | 页面路由、共享容器转场、主页固定栏、地图/详情入口、定位提示收起 |
+| ui/CityManagement.kt | 紧凑收藏页、长按选择/触感、按压与拖动弹簧、批量操作与无障碍重排 |
+| ui/CitySearchPage.kt | 独立城市搜索、国内/国际热门目录、紧凑搜索框与唯一定位入口 |
 | ui/WeatherPages.kt | 设置、共享页头和基础设置组件 |
 | ui/WeatherDetailPages.kt | 隐私、关于及来源/许可链接 |
 | ui/WeatherInsightsPage.kt | 天气详情分区、入口定位、小时/单日选择与标签同步 |

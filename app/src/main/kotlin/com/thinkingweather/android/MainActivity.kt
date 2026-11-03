@@ -13,6 +13,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
+import androidx.core.content.edit
 import androidx.core.location.LocationManagerCompat
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
@@ -21,7 +22,7 @@ import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.map
 import com.thinkingweather.android.ui.WeatherApp
 import com.thinkingweather.android.network.NetworkMonitor
-import com.thinkingweather.android.network.networkNotice
+import com.thinkingweather.android.network.NetworkNoticePolicy
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -47,18 +48,25 @@ class MainActivity : ComponentActivity() {
             navigationBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
         )
         weatherViewModel = ViewModelProvider(this)[WeatherViewModel::class.java]
+        val noticePreferences = getSharedPreferences("network_notices", MODE_PRIVATE)
+        val noticePolicy = NetworkNoticePolicy(noticePreferences.getBoolean("cellular_shown", false)) {
+            noticePreferences.edit { putBoolean("cellular_shown", true) }
+        }
         networkMonitor = NetworkMonitor(applicationContext) { state ->
-            networkToast?.cancel()
-            networkToast = networkNotice(state)?.let { message ->
+            noticePolicy.message(state)?.let { message ->
+                networkToast?.cancel()
                 Toast.makeText(applicationContext, message, Toast.LENGTH_SHORT).also(Toast::show)
-            }
+            }?.let { networkToast = it }
         }
         lifecycleScope.launch {
             weatherViewModel.uiState.map { it.selectedCity.location }
                 .distinctUntilChanged().drop(1).collect { locationJob?.cancel() }
         }
         setContent {
-            WeatherApp(weatherViewModel, onRequestLocation = ::requestWeatherLocation)
+            WeatherApp(weatherViewModel, onRequestLocation = ::requestWeatherLocation, onOpenWeatherMap = {
+                val options = android.app.ActivityOptions.makeCustomAnimation(this, android.R.anim.fade_in, android.R.anim.fade_out)
+                startActivity(android.content.Intent(this, WeatherMapActivity::class.java), options.toBundle())
+            })
         }
     }
 

@@ -8,6 +8,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -49,7 +50,7 @@ private val internationalPopular = listOf(
 )
 
 @Composable
-internal fun CitySearchPage(state: WeatherUiState, vm: WeatherViewModel, onBack: () -> Unit, onSelected: () -> Unit) {
+internal fun CitySearchPage(state: WeatherUiState, vm: WeatherViewModel, onBack: () -> Unit, onSelected: () -> Unit, onLocation: () -> Unit) {
     val keyboard = LocalSoftwareKeyboardController.current
     var international by rememberSaveable { mutableStateOf(false) }
     fun choose(city: City) { vm.addCity(city); vm.setSearchQuery(""); keyboard?.hide(); onSelected() }
@@ -58,15 +59,31 @@ internal fun CitySearchPage(state: WeatherUiState, vm: WeatherViewModel, onBack:
     Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         Column(Modifier.fillMaxSize().safeDrawingPadding().imePadding().padding(horizontal = 22.dp)) {
             PageHeader("搜索城市", "找到下一座关心的城市", onBack)
-            OutlinedTextField(value = state.searchQuery, onValueChange = vm::setSearchQuery,
-                modifier = Modifier.fillMaxWidth().padding(top = 12.dp).testTag("city-search-input"), singleLine = true,
-                placeholder = { Text("城市、区县或拼音", fontSize = 14.sp) },
-                leadingIcon = { LineIcon(Glyph.Search, color = MaterialTheme.colorScheme.onSurfaceVariant) },
-                trailingIcon = { if (query.isNotEmpty()) IconButton(onClick = { vm.setSearchQuery("") },
-                    modifier = Modifier.semantics { contentDescription = "清空搜索" }) { LineIcon(Glyph.Close, color = MaterialTheme.colorScheme.onSurfaceVariant) } },
-                shape = RoundedCornerShape(20.dp), keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                keyboardActions = KeyboardActions(onSearch = { keyboard?.hide() }))
-            LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(top = 24.dp, bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            BasicTextField(value = state.searchQuery, onValueChange = vm::setSearchQuery,
+                modifier = Modifier.fillMaxWidth().padding(top = 8.dp).clip(RoundedCornerShape(50))
+                    .background(MaterialTheme.colorScheme.surfaceContainer).testTag("city-search-input")
+                    .semantics { contentDescription = "搜索城市、区县或拼音" }, singleLine = true,
+                textStyle = MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.onSurface),
+                cursorBrush = androidx.compose.ui.graphics.SolidColor(MaterialTheme.colorScheme.primary),
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                keyboardActions = KeyboardActions(onSearch = { keyboard?.hide() }),
+                decorationBox = { input ->
+                    Row(Modifier.heightIn(min = 48.dp).padding(start = 16.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                        LineIcon(Glyph.Search, Modifier.size(20.dp), MaterialTheme.colorScheme.onSurfaceVariant)
+                        Box(Modifier.weight(1f).padding(horizontal = 12.dp, vertical = 10.dp)) {
+                            if (state.searchQuery.isEmpty()) Text("城市、区县或拼音", fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            input()
+                        }
+                        if (query.isNotEmpty()) IconButton(onClick = { vm.setSearchQuery("") },
+                            modifier = Modifier.semantics { contentDescription = "清空搜索" }) { LineIcon(Glyph.Close, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                    }
+                })
+            TextButton(onClick = { vm.setSearchQuery(""); keyboard?.hide(); onLocation(); onSelected() },
+                modifier = Modifier.padding(top = 4.dp).heightIn(min = 48.dp), contentPadding = PaddingValues(horizontal = 8.dp)) {
+                LineIcon(Glyph.Location, Modifier.size(17.dp), MaterialTheme.colorScheme.primary)
+                Spacer(Modifier.width(7.dp)); Text("使用当前位置", fontSize = 13.sp)
+            }
+            LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(top = 12.dp, bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 if (query.isBlank()) {
                     item { Text("热门城市", fontSize = 18.sp, fontWeight = FontWeight.Medium, modifier = Modifier.semantics { heading() }) }
                     item { Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(bottom = 8.dp)) {

@@ -4,16 +4,16 @@
 
 | 项目 | 正式版 | 调试版 |
 | --- | --- | --- |
-| 版本号 | 1.1.0 | 1.1.0-debug |
-| versionCode | 6 | 6 |
+| 版本号 | 1.2.0 | 1.2.0-debug |
+| versionCode | 7 | 7 |
 | applicationId | com.thinkingweather.android | com.thinkingweather.android.debug |
 | 显示名称 | 随想天气 | 随想天气 · 开发版 |
 | 签名 | 现有私有发布证书 | 默认 Android 调试证书 |
 | 天气服务 | 公网 FC HTTPS | 同一公网 FC HTTPS |
 
-`version.properties` 是版本来源。每次发行 `VERSION_CODE` 必须递增，`VERSION_NAME` 按 major.minor.patch 维护。1.1.0 将运行链路迁到已提供的 Serverless 入口并移除本地服务及示例预览，保留 1.0.4 的真实天气功能与界面。
+`version.properties` 是版本来源。每次发行 `VERSION_CODE` 必须递增，`VERSION_NAME` 按 major.minor.patch 维护。1.2.0 改进城市管理与共享容器动画、提供独立官方地图、保存一次性流量提醒，并修复预警参数白名单兼容；保持 1.1.0 的 Serverless 运行链路。
 
-当前安装 ID 与既有发布证书不变，可覆盖升级同签名的随想天气 1.0.0–1.0.4 并保留真实城市和设置。旧示例偏好忽略、示例缓存不作为真实数据；更名前不同安装 ID 的旧应用不自动迁移。[Android 版本规则](https://developer.android.com/studio/publish/versioning)
+当前安装 ID 与既有发布证书不变，可覆盖升级同签名的随想天气 1.0.0–1.1.0 并保留真实城市和设置。旧示例偏好忽略、示例缓存不作为真实数据；更名前不同安装 ID 的旧应用不自动迁移。[Android 版本规则](https://developer.android.com/studio/publish/versioning)
 
 ## 保留现有签名身份
 
@@ -43,7 +43,7 @@ Signed 任务先验证私有签名配置。没有配置的干净克隆可用普�
 
 仓库内 `serverless/index.mjs` 的新防护实现需要在阿里云另行部署，修改源码/生成 APK 不会自动发布云函数。云端配置和状态排查见 [HOSTING.md](HOSTING.md)。构建通过不代表真实订阅、额度和地区覆盖已通过。
 
-分发文件命名为 `dist/thinking-weather-1.1.0.apk`、`dist/thinking-weather-1.1.0.aab`、`dist/thinking-weather-1.1.0-debug.apk`。仅在实际打包后以 `dist/SHA256SUMS.txt` 和 [VALIDATION.md](VALIDATION.md) 核对大小、哈希、签名与限制；版本号更新本身不表示这些操作已完成。旧版本产物应存入 `dist/previous-versions/`，不混作当前分发物。
+分发文件命名为 `dist/thinking-weather-1.2.0.apk`、`dist/thinking-weather-1.2.0.aab`、`dist/thinking-weather-1.2.0-debug.apk`。仅在实际打包后以 `dist/SHA256SUMS.txt` 和 [VALIDATION.md](VALIDATION.md) 核对大小、哈希、签名与限制；版本号更新本身不表示这些操作已完成。旧版本产物应存入 `dist/previous-versions/`，不混作当前分发物。
 
 ## CI 与签名配置
 

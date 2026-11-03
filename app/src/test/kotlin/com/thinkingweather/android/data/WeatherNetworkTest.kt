@@ -52,6 +52,20 @@ class WeatherNetworkTest {
         }
     }
 
+    @Test(timeout = 10000) fun alertsWorkWithDeployedLangOnlyAllowlistAndEmptyResultsAreNotFailures() = runBlocking {
+        withService(dispatch = { request ->
+            if ("/weatheralert/" in request.path.orEmpty() && request.requestUrl?.queryParameterNames != setOf("lang"))
+                MockResponse().setResponseCode(400).setBody("""{"error":"invalid_query"}""")
+            else fixture(request)
+        }) { server, repository ->
+            val result = repository.weather(DefaultCities.beijing)
+            assertTrue(result.warnings.isEmpty())
+            assertFalse(result.partialFailures.contains("warnings_unavailable"))
+            val requests = (1..server.requestCount).map { server.takeRequest() }
+            assertEquals(setOf("lang"), requests.single { "/weatheralert/" in it.path.orEmpty() }.requestUrl?.queryParameterNames)
+        }
+    }
+
     @Test(timeout = 10000) fun HTTP429StopsOtherResourcesAndHonorsRetryAfter() = runBlocking {
         val clock = AtomicLong(1_800_000_000_000)
         val limited = AtomicInteger()

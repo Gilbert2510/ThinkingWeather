@@ -92,7 +92,7 @@ function route(request) {
     if (!match) throw new ProxyError(404, 'route_not_found');
     path = `/${match[1]}/${coordinate(match[3], -90, 90)}/${coordinate(match[4], -180, 180)}`;
     allowed = ['lang'];
-    if (match[2]) allowed.push('localTime');
+    if (match[2] || match[1].startsWith('weatheralert')) allowed.push('localTime');
     if (match[2] === 'hourly') allowed.push('hours');
     if (match[2] === 'daily') allowed.push('days');
     ttl = match[1].startsWith('weatheralert') ? 0 : match[2] === 'daily' ? 1800000 :

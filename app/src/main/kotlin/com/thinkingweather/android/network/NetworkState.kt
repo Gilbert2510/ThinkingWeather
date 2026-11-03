@@ -14,3 +14,18 @@ internal fun networkNotice(state: NetworkState): String? = when (state) {
     NetworkState.CELLULAR -> "请注意，当前正在使用移动流量"
     NetworkState.OTHER -> null
 }
+
+/** The acknowledgement is local and survives activity recreation and process restarts. */
+internal class NetworkNoticePolicy(
+    private var cellularShown: Boolean,
+    private val rememberCellularNotice: () -> Unit,
+) {
+    fun message(state: NetworkState): String? {
+        if (state == NetworkState.CELLULAR) {
+            if (cellularShown) return null
+            cellularShown = true
+            rememberCellularNotice()
+        }
+        return networkNotice(state)
+    }
+}

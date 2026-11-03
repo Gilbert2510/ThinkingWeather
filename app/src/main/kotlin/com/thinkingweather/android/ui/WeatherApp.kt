@@ -69,10 +69,11 @@ import kotlinx.coroutines.delay
 
 /** The complete weather experience. Every weather value is supplied by the repository. */
 @Composable
-fun WeatherApp(vm: WeatherViewModel, onRequestLocation: () -> Unit) {
+fun WeatherApp(vm: WeatherViewModel, onRequestLocation: () -> Unit, onOpenWeatherMap: () -> Unit) {
     val state by vm.uiState.collectAsStateWithLifecycle()
     var page by rememberSaveable { mutableStateOf("home") }
     var insightSection by rememberSaveable { mutableStateOf("current") }
+    var expandedCity by rememberSaveable { mutableStateOf<String?>(null) }
     val pageState = rememberSaveableStateHolder()
     val homeListState = rememberLazyListState()
     LaunchedEffect(state.selectedCity.location) { homeListState.scrollToItem(0) }
@@ -88,36 +89,52 @@ fun WeatherApp(vm: WeatherViewModel, onRequestLocation: () -> Unit) {
     ThinkingWeatherTheme {
         PageSystemBars(useDarkIcons = page != "home" && !androidx.compose.foundation.isSystemInDarkTheme())
         BackHandler(enabled = page != "home", onBack = goBack)
-        AnimatedContent(
-            targetState = page,
-            modifier = Modifier.fillMaxSize(),
-            transitionSpec = {
-                val forward = depth(targetState) > depth(initialState)
-                (slideInHorizontally(tween(300)) { if (forward) it else -it / 5 } +
-                    fadeIn(tween(260)) + scaleIn(tween(300), initialScale = .985f)) togetherWith
-                    (slideOutHorizontally(tween(300)) { if (forward) -it / 5 else it } + fadeOut(tween(220)))
-            },
-            label = "weather-pages",
-        ) { destination ->
-            pageState.SaveableStateProvider(destination) {
-                when (destination) {
-                    "cities" -> CitiesPage(state, vm, onRequestLocation, onBack = goBack, onSearch = { page = "search" })
-                    "search" -> CitySearchPage(state, vm, onBack = goBack, onSelected = { keyboard?.hide(); page = "home" })
-                    "settings" -> SettingsPage(state, vm, onBack = goBack,
-                        onPrivacy = { page = "privacy" }, onAbout = { page = "about" })
-                    "privacy" -> PrivacyPage(goBack)
-                    "about" -> AboutPage(state, goBack)
-                    "insights" -> if (state.snapshot != null) WeatherInsightsPage(state.snapshot!!, state.temperatureUnit, insightSection, goBack)
-                        else Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-                            Column(Modifier.fillMaxSize().safeDrawingPadding().padding(horizontal = 22.dp)) {
-                                PageHeader("天气详情", state.selectedCity.name, goBack)
-                                Text("天气数据尚未就绪，请返回主页更新。", modifier = Modifier.padding(top = 24.dp),
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+        SharedTransitionLayout {
+            val sharedScope = this
+            AnimatedContent(
+                targetState = page,
+                modifier = Modifier.fillMaxSize(),
+                transitionSpec = {
+                    val forward = depth(targetState) > depth(initialState)
+                    if (setOf(initialState, targetState) == setOf("cities", "home")) {
+                        fadeIn(tween(280)) togetherWith fadeOut(tween(220))
+                    } else (slideInHorizontally(tween(300)) { if (forward) it else -it / 5 } +
+                        fadeIn(tween(260)) + scaleIn(tween(300), initialScale = .985f)) togetherWith
+                        (slideOutHorizontally(tween(300)) { if (forward) -it / 5 else it } + fadeOut(tween(220)))
+                },
+                label = "weather-pages",
+            ) { destination ->
+                val visibilityScope = this
+                val homeBounds = if (expandedCity == null) Modifier else with(sharedScope) {
+                    Modifier.sharedBounds(rememberSharedContentState("city-$expandedCity"), visibilityScope,
+                        boundsTransform = { _, _ -> tween(430) },
+                        enter = fadeIn(tween(220)), exit = fadeOut(tween(220)),
+                        resizeMode = SharedTransitionScope.ResizeMode.scaleToBounds(alignment = Alignment.TopStart),
+                        clipInOverlayDuringTransition = OverlayClip(RoundedCornerShape(26.dp)))
+                }
+                pageState.SaveableStateProvider(destination) {
+                    when (destination) {
+                        "cities" -> CitiesPage(state, vm, onBack = goBack, onSearch = { page = "search" },
+                            onOpenCity = { city -> expandedCity = city.location; vm.selectCity(city); page = "home" },
+                            sharedScope = sharedScope, visibilityScope = visibilityScope)
+                        "search" -> CitySearchPage(state, vm, onBack = goBack,
+                            onSelected = { keyboard?.hide(); expandedCity = null; page = "home" }, onLocation = onRequestLocation)
+                        "settings" -> SettingsPage(state, vm, onBack = goBack,
+                            onPrivacy = { page = "privacy" }, onAbout = { page = "about" })
+                        "privacy" -> PrivacyPage(goBack)
+                        "about" -> AboutPage(state, goBack)
+                        "insights" -> if (state.snapshot != null) WeatherInsightsPage(state.snapshot!!, state.temperatureUnit, insightSection, goBack)
+                            else Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+                                Column(Modifier.fillMaxSize().safeDrawingPadding().padding(horizontal = 22.dp)) {
+                                    PageHeader("天气详情", state.selectedCity.name, goBack)
+                                    Text("天气数据尚未就绪，请返回主页更新。", modifier = Modifier.padding(top = 24.dp),
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
                             }
-                        }
-                    else -> WeatherHome(state, vm, onRequestLocation, clockMillis, homeListState,
-                        onCities = { page = "cities" }, onSettings = { page = "settings" },
-                        onDetails = { insightSection = it; page = "insights" })
+                        else -> WeatherHome(state, vm, clockMillis, homeListState,
+                            onCities = { expandedCity = state.selectedCity.location; page = "cities" }, onSettings = { page = "settings" },
+                            onDetails = { insightSection = it; page = "insights" }, onMap = onOpenWeatherMap, modifier = homeBounds)
+                    }
                 }
             }
         }
@@ -146,9 +163,9 @@ private fun PageSystemBars(useDarkIcons: Boolean) {
 
 @Composable
 private fun WeatherHome(
-    state: WeatherUiState, vm: WeatherViewModel, onRequestLocation: () -> Unit,
+    state: WeatherUiState, vm: WeatherViewModel,
     clockMillis: Long, homeListState: LazyListState, onCities: () -> Unit, onSettings: () -> Unit,
-    onDetails: (String) -> Unit,
+    onDetails: (String) -> Unit, onMap: () -> Unit, modifier: Modifier = Modifier,
 ) {
     val systemNight = androidx.compose.foundation.isSystemInDarkTheme()
     var previousVisual by remember { mutableStateOf(WeatherCategory.CLEAR to systemNight) }
@@ -183,7 +200,7 @@ private fun WeatherHome(
         if (state.snapshot == null) 0f else if (pullState.released) refreshOffset else pullState.distance,
         tween(150), label = "pull-down-offset",
     )
-    Box(Modifier.fillMaxSize().background(Brush.verticalGradient(background))) {
+    Box(modifier.fillMaxSize().background(Brush.verticalGradient(background))) {
         WeatherAtmosphere(category, night)
         BoxWithConstraints(Modifier.fillMaxSize()) {
             val wide = maxWidth >= 720.dp
@@ -198,7 +215,7 @@ private fun WeatherHome(
                     .testTag("weather-scroll")
                     .semantics { customActions = listOf(CustomAccessibilityAction("刷新天气") { if (!busy) refresh(); true }) },
                 contentPadding = PaddingValues(start = if (wide) 32.dp else 22.dp, end = if (wide) 32.dp else 22.dp,
-                    top = 12.dp, bottom = 12.dp),
+                    top = 12.dp, bottom = 80.dp),
                 verticalArrangement = Arrangement.spacedBy(18.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
@@ -215,7 +232,7 @@ private fun WeatherHome(
                 }
                 val snapshot = state.snapshot
                 if (snapshot == null) {
-                    item { EmptyWeather(state, onLocation = onRequestLocation, onCities = onCities, onRetry = vm::refresh) }
+                    item { EmptyWeather(state, onCities = onCities, onRetry = vm::refresh) }
                 } else {
                     if (snapshot.isStale) item {
                         InfoStrip("正在显示已保存的天气", "网络或数据源暂时不可用，以下信息可能已过时。", "更新", vm::refresh, Modifier.widthIn(max = 1040.dp))
@@ -267,6 +284,13 @@ private fun WeatherHome(
                 pullState, initialLoading = state.isLoading && state.snapshot == null,
                 modifier = Modifier.align(Alignment.TopCenter).padding(top = headerHeight + 4.dp),
             )
+            FilledIconButton(onClick = onMap,
+                modifier = Modifier.align(Alignment.BottomEnd).navigationBarsPadding().padding(end = 22.dp, bottom = 20.dp)
+                    .size(52.dp).testTag("open-weather-map").semantics { contentDescription = "天气地图" },
+                shape = CircleShape, colors = IconButtonDefaults.filledIconButtonColors(
+                    containerColor = Color(0xFFDBEDF4), contentColor = Color(0xFF244E6A))) {
+                LineIcon(Glyph.Map, color = Color(0xFF244E6A))
+            }
         }
     }
 }
@@ -320,7 +344,6 @@ private fun WeatherHero(snapshot:WeatherSnapshot, unit:TemperatureUnit, modifier
         val temperatureSize=minOf(if(wide)140f else 112f,available/fontScale/(number.length*.52f+.55f)).coerceAtLeast(38f)
         Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                Text(observationTime(now.obsTime),color=SkyMuted,fontSize=12.sp,letterSpacing=.4.sp)
                 Text(buildAnnotatedString{append(number);withStyle(SpanStyle(fontSize=(temperatureSize*.38f).sp,letterSpacing=0.sp)){append(unit.symbol)}},
                     color=SkyWhite,fontSize=temperatureSize.sp,lineHeight=(temperatureSize*1.12f).sp,fontWeight=FontWeight.ExtraLight,letterSpacing=(-5).sp,maxLines=1,softWrap=false,
                     modifier=Modifier.padding(top=9.dp).clearAndSetSemantics{contentDescription="当前温度 ${unit.format(now.temp,true)}"})
@@ -590,14 +613,13 @@ private fun InfoStrip(title:String,message:String,action:String,onAction:()->Uni
 }
 
 @Composable
-private fun EmptyWeather(state:WeatherUiState,onLocation:()->Unit,onCities:()->Unit,onRetry:()->Unit) {
+private fun EmptyWeather(state:WeatherUiState,onCities:()->Unit,onRetry:()->Unit) {
     GlassCard(Modifier.widthIn(max=600.dp).padding(top=35.dp)) {
         WeatherSymbol("101","多云",Modifier.align(Alignment.CenterHorizontally).size(130.dp))
         Text(if(state.isLoading)"正在获取天气…" else "从一座城市开始",color=SkyWhite,fontSize=25.sp,fontWeight=FontWeight.Light,modifier=Modifier.align(Alignment.CenterHorizontally).padding(top=22.dp))
         Text(if(state.isLoading)"正在获取最新天气，请稍候。" else "搜索想要关注的城市，或使用当前位置查看天气。",color=SkyMuted,fontSize=14.sp,lineHeight=24.sp,textAlign=TextAlign.Center,modifier=Modifier.padding(top=15.dp,bottom=26.dp))
         if(!state.isLoading) {
             Button(onClick=onCities,modifier=Modifier.fillMaxWidth().heightIn(min=50.dp),colors=ButtonDefaults.buttonColors(containerColor=SkyWhite,contentColor=Color(0xFF31566F))) {Text("选择城市")}
-            TextButton(onClick=onLocation,modifier=Modifier.fillMaxWidth(),colors=ButtonDefaults.textButtonColors(contentColor=SkyWhite)) {Text("使用当前位置")}
             TextButton(onClick=onRetry,modifier=Modifier.fillMaxWidth(),colors=ButtonDefaults.textButtonColors(contentColor=SkyMuted)){Text("重新获取天气")}
         } else CircularProgressIndicator(Modifier.align(Alignment.CenterHorizontally).size(26.dp),color=SkyWhite,strokeWidth=2.dp)
     }
@@ -610,7 +632,6 @@ private fun dayLabel(value:String,timeZone:String):String = runCatching{
     val today=LocalDate.now(runCatching{ZoneId.of(timeZone)}.getOrDefault(ZoneId.of("Asia/Shanghai")))
     when(date){today->"今天";today.plusDays(1)->"明天";else->listOf("周一","周二","周三","周四","周五","周六","周日")[date.dayOfWeek.value-1]}
 }.getOrDefault("预报")
-private fun observationTime(value:String):String = if(value.isBlank())"实时天气" else "当地 ${hourLabel(value)} 观测"
 private fun value(text:String,unit:String):String = if(text.isBlank())"—" else text+unit
 private fun uvLabel(value:String?):String = when(value?.toFloatOrNull()?.takeIf{it.isFinite() && it>=0}){null->"暂无紫外线数据";in 0f..2.99f->"较弱";in 3f..5.99f->"中等 · 注意防晒";in 6f..7.99f->"较强 · 注意防晒";in 8f..10.99f->"很强 · 减少暴晒";else->"极强 · 避免暴晒"}
 private fun warningColor(value:String):Color = when(value.lowercase()){ "red","红色"->Color(0xFFFFA6A1);"orange","橙色"->Color(0xFFFFC19C);"yellow","黄色"->Color(0xFFF4DF9B);else->Color(0xFFA6D9FA)}

@@ -6,7 +6,7 @@
 
 已经在线的代理与本目录新增的防护实现是两个状态：本轮只修改仓库代码，没有登录阿里云控制台或代为部署。替换并发布 `index.mjs` 后，下列防护才作用于公网函数。
 
-本机分发目录中的 `dist/thinking-weather-fc-1.1.0.zip` 是可直接上传的函数源码包，仅包含入口、包描述及许可证，不包含环境变量、测试或本机归档。不要上传整个 Android 工程目录。
+本机分发目录中的 `dist/thinking-weather-fc-1.2.0.zip` 是可直接上传的函数源码包，仅包含入口、包描述及许可证，不包含环境变量、测试或本机归档。不要上传整个 Android 工程目录。
 
 ## 部署到现有函数
 
@@ -28,7 +28,7 @@ FC 3 内置运行时的 HTTP 触发器将请求转为事件，使用 `rawPath`�
 | `/weather/v1/hourly/{lat}/{lon}` | 上述参数和 `hours`（1–24） | 10 分钟 |
 | `/weather/v1/daily/{lat}/{lon}` | 上述参数和 `days`（1–7） | 30 分钟 |
 | `/airquality/v1/current/{lat}/{lon}` | `lang` | 10 分钟 |
-| `/weatheralert/v1/current/{lat}/{lon}` | `lang` | 不缓存 |
+| `/weatheralert/v1/current/{lat}/{lon}` | `lang`、可选 `localTime=true` | 不缓存 |
 | `/v7/indices/1d` | `location`、`type=0`、`lang` | 60 分钟 |
 | `/v7/weather/now`、`24h`、`7d` | `location`、`lang`、`unit=m`，兼容已有调用 | 120 秒 / 10 分钟 / 30 分钟 |
 
@@ -66,6 +66,8 @@ npm test
 测试只使用注入的响应，不访问真实公网服务、不读取真实环境变量，也不运行本地天气服务。源码包部署仅需 `index.mjs`，`.env.example` 和 `test/` 不包含真实配置，不必上传到云函数执行包。
 
 ## 官方协议
+
+1.2.0 补齐预警 `localTime=true` 参数白名单；客户端省略此可选参数以兼容已部署的旧规则，无需先更换函数。真实空预警响应仍视为成功。部署本目录更新后才会改变云端参数校验，见 [预警修复记录](../docs/WEATHER_MAP.md)。
 
 - [FC HTTP 触发器事件及返回格式](https://www.alibabacloud.com/help/en/functioncompute/http-trigger-invoking-function)
 - [Node.js Handler、ES 模块及 index.handler](https://help.aliyun.com/zh/functioncompute/request-handlers)

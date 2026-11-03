@@ -1,14 +1,16 @@
 package com.thinkingweather.android.ui
 
 import androidx.activity.compose.BackHandler
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
-import androidx.compose.animation.expandVertically
-import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.AnimatedVisibilityScope
+import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.*
@@ -41,15 +43,14 @@ import androidx.compose.ui.zIndex
 import androidx.lifecycle.compose.LifecycleStartEffect
 import com.thinkingweather.android.WeatherUiState
 import com.thinkingweather.android.WeatherViewModel
-import com.thinkingweather.android.data.WeatherStore
 import com.thinkingweather.android.data.orderedSavedCities
 import com.thinkingweather.android.model.*
 import kotlinx.coroutines.delay
 
 @Composable
 internal fun CitiesPage(
-    state: WeatherUiState, vm: WeatherViewModel, onLocation: () -> Unit,
-    onBack: () -> Unit, onSearch: () -> Unit,
+    state: WeatherUiState, vm: WeatherViewModel, onBack: () -> Unit, onSearch: () -> Unit,
+    onOpenCity: (City) -> Unit, sharedScope: SharedTransitionScope, visibilityScope: AnimatedVisibilityScope,
 ) {
     var editing by rememberSaveable { mutableStateOf(false) }
     var selected by rememberSaveable { mutableStateOf(emptyList<String>()) }
@@ -60,6 +61,12 @@ internal fun CitiesPage(
     val listState = rememberLazyListState()
     val density = LocalDensity.current
     val haptics = LocalHapticFeedback.current
+    fun beginEditing(city: City? = null) {
+        order = state.cities.map(City::location)
+        selected = city?.let { listOf(it.location) }.orEmpty()
+        editing = true
+        vm.clearCityEditMessage()
+    }
     val cities = if (editing) orderedSavedCities(state.cities, order) else state.cities
     val latestCities by rememberUpdatedState(cities)
     val finish: () -> Unit = {
@@ -104,41 +111,40 @@ internal fun CitiesPage(
     BackHandler(editing, finish)
     LifecycleStartEffect(vm) { vm.onCitiesOpened(); onStopOrDispose { vm.onCitiesClosed() } }
     Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-        Column(Modifier.fillMaxSize().safeDrawingPadding().padding(horizontal = 22.dp)) {
-            if (editing) Row(Modifier.fillMaxWidth().heightIn(min = 76.dp), verticalAlignment = Alignment.CenterVertically) {
-                TextButton(onClick = { selected = if (selected.size == cities.size) emptyList() else cities.map(City::location) }) {
-                    Text(if (selected.size == cities.size) "取消全选" else "全选")
+        Column(Modifier.fillMaxSize().safeDrawingPadding().padding(horizontal = 18.dp)) {
+            // Fixed geometry: changing editing state replaces labels without moving the list.
+            Row(Modifier.fillMaxWidth().heightIn(min = 64.dp), verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.width(76.dp)) {
+                    if (editing) TextButton(onClick = { selected = if (selected.size == cities.size) emptyList() else cities.map(City::location) }) {
+                        Text(if (selected.size == cities.size) "取消全选" else "全选", fontSize = 14.sp)
+                    } else WeatherIconButton("返回", Glyph.Back, onBack, MaterialTheme.colorScheme.onSurface)
                 }
-                Text("已选择 ${selected.size} 项", textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                    fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
-                TextButton(onClick = finish) { Text("完成") }
-            } else Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.weight(1f)) { PageHeader("我的城市", "把关心的地方，放在身边", onBack) }
-                TextButton(onClick = { order = state.cities.map(City::location); editing = true; vm.clearCityEditMessage() },
-                    modifier = Modifier.testTag("edit-cities")) { Text("编辑") }
-            }
-            AnimatedVisibility(!editing, enter = expandVertically(), exit = shrinkVertically()) {
-                Column {
-                    CitySearchEntry(onSearch)
-                    FilledTonalButton(onClick = { onLocation(); onBack() },
-                        modifier = Modifier.fillMaxWidth().padding(top = 12.dp).heightIn(min = 48.dp)) {
-                        LineIcon(Glyph.Location, Modifier.size(18.dp), MaterialTheme.colorScheme.onSecondaryContainer)
-                        Spacer(Modifier.width(9.dp)); Text("使用当前位置")
-                    }
-                    Row(Modifier.fillMaxWidth().padding(top = 22.dp, bottom = 12.dp)) {
-                        Text("已保存", Modifier.weight(1f), fontSize = 13.sp, fontWeight = FontWeight.Medium)
-                        Text("${cities.size} / ${WeatherStore.MAX_CITIES}", fontSize = 12.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
+                Text(if (!editing) "我的城市" else if (selected.isEmpty()) "选择项目" else "已选择${selected.size}项",
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center, fontSize = 21.sp,
+                    fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f).semantics { heading() })
+                Box(Modifier.width(76.dp), contentAlignment = Alignment.CenterEnd) {
+                    if (editing) TextButton(onClick = finish) { Text("完成") }
+                    else TextButton(onClick = { beginEditing() }, modifier = Modifier.testTag("edit-cities")) { Text("编辑") }
                 }
             }
-            if (editing) Text("长按右侧手柄拖动排序，点击卡片选择城市", color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp, bottom = 16.dp))
+            CitySearchEntry(onSearch, enabled = !editing)
+            Spacer(Modifier.height(16.dp))
             LazyColumn(state = listState, modifier = Modifier.weight(1f).testTag("city-list"),
                 verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(top = 4.dp, bottom = 22.dp)) {
                 items(cities, key = City::location) { city ->
                     val raised = dragging == city.location
-                    val scale by animateFloatAsState(if (raised) 1.025f else 1f, spring(), label = "city-drag-scale")
+                    val interaction = remember { MutableInteractionSource() }
+                    val pressed by interaction.collectIsPressedAsState()
+                    val scale by animateFloatAsState(if (raised) 1.065f else if (pressed) .965f else 1f,
+                        spring(dampingRatio = if (raised || pressed) .82f else .48f, stiffness = if (pressed) 420f else 340f), label = "city-touch-scale")
+                    val cardBounds = with(sharedScope) {
+                        Modifier.sharedBounds(rememberSharedContentState("city-${city.location}"), visibilityScope,
+                            boundsTransform = { _, _ -> androidx.compose.animation.core.tween(430) },
+                            enter = androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(220)),
+                            exit = androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(220)),
+                            resizeMode = SharedTransitionScope.ResizeMode.scaleToBounds(alignment = Alignment.TopStart),
+                            clipInOverlayDuringTransition = OverlayClip(RoundedCornerShape(26.dp)))
+                    }
                     CityManagementCard(city, state, editing, city.location in selected,
                         Modifier.animateItem(placementSpec = if (raised) null else spring(stiffness = 340f))
                             .zIndex(if (raised) 1f else 0f).graphicsLayer {
@@ -147,8 +153,9 @@ internal fun CitiesPage(
                                 scaleX = scale; scaleY = scale
                                 shadowElevation = if (raised) 18.dp.toPx() else 0f
                                 shape = RoundedCornerShape(24.dp); clip = false
-                            }.testTag("city-card-${city.location}"),
-                        onSelect = { if (editing) toggle(city.location) else { vm.selectCity(city); onBack() } },
+                            }.then(cardBounds).testTag("city-card-${city.location}"), interaction,
+                        onSelect = { if (editing) toggle(city.location) else onOpenCity(city) },
+                        onLongPress = { if (!editing) { beginEditing(city); haptics.performHapticFeedback(HapticFeedbackType.LongPress) } },
                         onDragStart = {
                             val item = listState.layoutInfo.visibleItemsInfo.firstOrNull { it.key == city.location }
                             if (item != null) { dragging = city.location; dragCenter = item.offset + item.size / 2f
@@ -159,7 +166,7 @@ internal fun CitiesPage(
                     )
                 }
             }
-            AnimatedVisibility(editing, enter = expandVertically(), exit = shrinkVertically()) {
+            if (editing) {
                 Surface(shape = RoundedCornerShape(24.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh,
                     modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp)) {
                     Column(Modifier.padding(12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -183,10 +190,10 @@ internal fun CitiesPage(
 }
 
 @Composable
-private fun CitySearchEntry(onSearch: () -> Unit) {
-    Row(Modifier.fillMaxWidth().padding(top = 12.dp).clip(RoundedCornerShape(20.dp))
-        .background(MaterialTheme.colorScheme.surfaceContainer).clickable(onClick = onSearch)
-        .heightIn(min = 58.dp).padding(horizontal = 18.dp).testTag("open-city-search")
+private fun CitySearchEntry(onSearch: () -> Unit, enabled: Boolean) {
+    Row(Modifier.fillMaxWidth().padding(top = 4.dp).clip(RoundedCornerShape(50))
+        .background(MaterialTheme.colorScheme.surfaceContainer).clickable(enabled = enabled, onClick = onSearch)
+        .heightIn(min = 48.dp).padding(horizontal = 16.dp).testTag("open-city-search")
         .semantics { contentDescription = "搜索城市" }, verticalAlignment = Alignment.CenterVertically) {
         LineIcon(Glyph.Search, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Text("搜索城市、区县或拼音", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 14.sp, modifier = Modifier.padding(start = 12.dp))
@@ -196,7 +203,8 @@ private fun CitySearchEntry(onSearch: () -> Unit) {
 @Composable
 private fun CityManagementCard(
     city: City, state: WeatherUiState, editing: Boolean, checked: Boolean, modifier: Modifier,
-    onSelect: () -> Unit, onDragStart: () -> Unit, onDrag: (Float) -> Unit, onDragEnd: () -> Unit, onMove: (Int) -> Unit,
+    interaction: MutableInteractionSource, onSelect: () -> Unit, onLongPress: () -> Unit,
+    onDragStart: () -> Unit, onDrag: (Float) -> Unit, onDragEnd: () -> Unit, onMove: (Int) -> Unit,
 ) {
     val snapshot = state.snapshot?.takeIf { it.city.location == city.location }
     val summary = state.citySummaries[city.location]
@@ -208,11 +216,12 @@ private fun CityManagementCard(
     val stale = summary?.isStale ?: (snapshot?.isStale == true)
     val current = state.selectedCity.location == city.location
     val colors = if (temperature.isBlank()) listOf(Color(0xFF3D627C), Color(0xFF476779)) else weatherBackgroundColors(weatherCategory(icon, weather), night)
-    Row(modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp)).background(Brush.horizontalGradient(colors))
-        .clickable(onClick = onSelect).semantics {
+    Row(modifier.fillMaxWidth().clip(RoundedCornerShape(26.dp)).background(Brush.horizontalGradient(colors))
+        .combinedClickable(interactionSource = interaction, indication = null,
+            onClick = onSelect, onLongClick = onLongPress, onLongClickLabel = "选择并编辑城市", hapticFeedbackEnabled = false).semantics {
             selected = if (editing) checked else current
             stateDescription = if (editing) { if (checked) "已选择" else "未选择" } else if (current) "当前城市" else "已保存城市"
-        }.padding(start = if (editing) 8.dp else 20.dp, end = if (editing) 4.dp else 20.dp, top = 19.dp, bottom = 19.dp), verticalAlignment = Alignment.CenterVertically) {
+        }.heightIn(min = 112.dp).padding(start = if (editing) 8.dp else 20.dp, end = if (editing) 4.dp else 20.dp, top = 18.dp, bottom = 18.dp), verticalAlignment = Alignment.CenterVertically) {
         if (editing) Checkbox(checked = checked, onCheckedChange = { onSelect() },
             colors = CheckboxDefaults.colors(checkedColor = Color.White, checkmarkColor = Color(0xFF225878), uncheckedColor = Color.White.copy(alpha = .8f)),
             modifier = Modifier.semantics { contentDescription = "选择 ${city.name}" })

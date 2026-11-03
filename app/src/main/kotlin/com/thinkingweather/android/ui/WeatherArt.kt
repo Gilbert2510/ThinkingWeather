@@ -22,7 +22,7 @@ import kotlin.math.sin
 import com.thinkingweather.android.model.WeatherCategory
 import com.thinkingweather.android.model.weatherCategory
 
-internal enum class Glyph { Cities, Settings, Location, Close, Search, Check, Wind, Drop, Sun, Eye, Pressure, Chevron, External, Back, ArrowUp }
+internal enum class Glyph { Cities, Settings, Location, Close, Search, Check, Wind, Drop, Sun, Eye, Pressure, Chevron, External, Back, ArrowUp, Map }
 
 @Composable
 internal fun LineIcon(glyph: Glyph, modifier: Modifier = Modifier, color: Color = SkyWhite) {
@@ -59,6 +59,11 @@ internal fun LineIcon(glyph: Glyph, modifier: Modifier = Modifier, color: Color 
                 Glyph.External -> {line(13f,4f,21f,4f);line(21f,4f,21f,12f);line(21f,4f,11f,14f);val p=Path().apply{moveTo(9f,5f);lineTo(4f,5f);lineTo(4f,20f);lineTo(19f,20f);lineTo(19f,15f)};drawPath(p,color,style=stroke)}
                 Glyph.Back -> {line(14f,5f,7f,12f);line(7f,12f,14f,19f)}
                 Glyph.ArrowUp -> {line(12f,20f,12f,4f);line(5f,11f,12f,4f);line(12f,4f,19f,11f)}
+                Glyph.Map -> {
+                    val map = Path().apply { moveTo(3f,5f); lineTo(9f,3f); lineTo(15f,6f); lineTo(21f,4f)
+                        lineTo(21f,19f); lineTo(15f,21f); lineTo(9f,18f); lineTo(3f,20f); close() }
+                    drawPath(map, color, style = stroke); line(9f,3f,9f,18f); line(15f,6f,15f,21f)
+                }
             }
         }
     }

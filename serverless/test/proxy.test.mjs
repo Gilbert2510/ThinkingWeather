@@ -47,6 +47,20 @@ test('bad configuration never contacts a caller-controlled host', async () => {
   }
 });
 
+test('alert localTime follows the provider contract and successful zero results remain successful', async () => {
+  const urls = [];
+  const proxy = createHandler({ env: environment, fetchImpl: async url => {
+    urls.push(url);
+    return new Response('{"metadata":{"zeroResult":true},"alerts":[]}');
+  } });
+  for (const query of [{ lang: 'zh' }, { lang: 'zh', localTime: 'true' }]) {
+    const result = await proxy(event('/weatheralert/v1/current/39.90/116.41', query));
+    assert.equal(result.statusCode, 200);
+    assert.equal(JSON.parse(result.body).metadata.zeroResult, true);
+  }
+  assert.equal(new URL(urls[1]).searchParams.get('localTime'), 'true');
+});
+
 test('unknown routes, path traversal, unsupported parameters and bad coordinates fail before fetch', async () => {
   let calls = 0;
   const proxy = createHandler({ env: environment, fetchImpl: async () => { calls++; return payload(); } });

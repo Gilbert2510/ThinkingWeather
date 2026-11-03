@@ -43,6 +43,10 @@ ViewModel 负责请求代次、取消、持久化和错误分类；旧请求不�
 
 ## FC 代理的部署边界
 
+1.2.0 采用 Compose 共享边界连接城市卡片与主页；城市编辑使用固定布局、一次长按触感和弹簧缩放。移动流量提示的已显示标记保存在本机 SharedPreferences，后台往返、Activity 重建或进程重启均不重复，离线提示仍由前台监听决定。
+
+地图是用户主动打开的官方 HTTPS WebView 页面，与 FC 天气数据链路分离，不持有 Key、不接收原生位置、不提供 JS 桥。网页不在首页预加载，退出后销毁；安全导航与生命周期见 [WEATHER_MAP.md](WEATHER_MAP.md)。
+
 `serverless/index.mjs` 是新增的替换实现，保持 `QWEATHER_KEY` / `QWEATHER_HOST` 名称和 raw API 契约。只有在阿里云重新部署后，下列实现才作用于线上服务：
 
 - 固定 HTTPS 专属 Host、GET 路由及参数白名单，不转发调用者认证/任意 URL，拒绝重定向。

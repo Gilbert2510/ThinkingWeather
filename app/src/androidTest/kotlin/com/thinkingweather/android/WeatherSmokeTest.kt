@@ -21,6 +21,11 @@ import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipeDown
+import androidx.compose.ui.test.longClick
+import androidx.compose.ui.hapticfeedback.HapticFeedback
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.geometry.Offset
 import androidx.lifecycle.ViewModelStore
 import android.app.Application
@@ -38,6 +43,7 @@ import org.junit.Test
 import org.junit.Before
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.runner.RunWith
 import java.io.File
 
@@ -49,6 +55,8 @@ class WeatherSmokeTest {
     private val preferences = MemoryWeatherPreferences()
     private val viewModels = ViewModelStore()
     private lateinit var viewModel: WeatherViewModel
+    private val hapticCount = java.util.concurrent.atomic.AtomicInteger()
+    private val mapOpenCount = java.util.concurrent.atomic.AtomicInteger()
 
     @Before fun launchIsolatedUi() {
         val app = InstrumentationRegistry.getInstrumentation().targetContext.applicationContext as Application
@@ -56,7 +64,13 @@ class WeatherSmokeTest {
             viewModel = WeatherViewModel(app, FixtureWeatherSource(), preferences, MemoryCitySummaryCache())
             viewModels.put("weather-ui", viewModel)
         }
-        compose.setContent { WeatherApp(viewModel, onRequestLocation = {}) }
+        compose.setContent {
+            CompositionLocalProvider(LocalHapticFeedback provides object : HapticFeedback {
+                override fun performHapticFeedback(hapticFeedbackType: HapticFeedbackType) { hapticCount.incrementAndGet() }
+            }) {
+                WeatherApp(viewModel, onRequestLocation = {}, onOpenWeatherMap = { mapOpenCount.incrementAndGet() })
+            }
+        }
     }
 
     @After fun closeIsolatedDependencies() {
@@ -290,7 +304,7 @@ class WeatherSmokeTest {
         compose.waitUntil(timeoutMillis = 5_000) { viewModel.uiState.value.cities.first().location == DefaultCities.shanghai.location }
         compose.onNodeWithText("编辑").performClick()
         compose.onNodeWithText("全选").performClick()
-        compose.onNodeWithText("已选择 3 项").assertIsDisplayed()
+        compose.onNodeWithText("已选择3项").assertIsDisplayed()
         compose.onNodeWithText("删除（3）").performClick()
         compose.onNodeWithText("知道了").performClick()
         compose.runOnIdle { assertEquals(3, viewModel.uiState.value.cities.size) }
@@ -302,6 +316,57 @@ class WeatherSmokeTest {
         compose.waitUntil(timeoutMillis = 5_000) { viewModel.uiState.value.cities.size == 1 }
         compose.onNodeWithText("完成").performClick()
         compose.runOnIdle { assertEquals(DefaultCities.beijing.location, viewModel.uiState.value.cities.single().location) }
+    }
+
+    @Test
+    fun cityLongPressSelectsOnceWithHapticsAndKeepsTheListInPlace() {
+        waitForDescription("当前温度 16℃")
+        compose.onNodeWithContentDescription("管理城市").performClick()
+        compose.onNodeWithText("使用当前位置").assertDoesNotExist()
+        compose.onNodeWithText("已保存").assertDoesNotExist()
+        val card = compose.onNodeWithTag("city-card-${DefaultCities.shanghai.location}")
+        val before = card.fetchSemanticsNode().boundsInRoot
+        card.performTouchInput { longClick() }
+        compose.onNodeWithText("已选择1项").assertIsDisplayed()
+        compose.onNodeWithContentDescription("选择 上海").assertIsDisplayed()
+        compose.runOnIdle { assertEquals(1, hapticCount.get()) }
+        val after = card.fetchSemanticsNode().boundsInRoot
+        assertEquals(before.top, after.top, 1f)
+        assertEquals(before.height, after.height, 1f)
+        capture("city-long-press")
+        compose.onNodeWithText("完成").performClick()
+        compose.onNodeWithText("编辑").performClick()
+        compose.onNodeWithText("选择项目").assertIsDisplayed()
+    }
+
+    @Test
+    fun cityCardPressShrinksAndTapOpensItsWeatherThroughContainerTransition() {
+        waitForDescription("当前温度 16℃")
+        compose.onNodeWithContentDescription("管理城市").performClick()
+        val card = compose.onNodeWithTag("city-card-${DefaultCities.shanghai.location}")
+        val original = card.fetchSemanticsNode().boundsInRoot
+        compose.mainClock.autoAdvance = false
+        card.performTouchInput { down(center) }
+        compose.mainClock.advanceTimeBy(240)
+        val pressed = card.fetchSemanticsNode().boundsInRoot
+        assertTrue("Press should visibly compress the card", pressed.width < original.width * .99f)
+        card.performTouchInput { up() }
+        compose.mainClock.advanceTimeBy(160)
+        val directory = File(InstrumentationRegistry.getInstrumentation().targetContext.getExternalFilesDir(null), "validation").apply { mkdirs() }
+        File(directory, "city-expand-midpoint.png").outputStream().use { output ->
+            compose.onRoot().captureToImage().asAndroidBitmap().compress(android.graphics.Bitmap.CompressFormat.PNG, 100, output)
+        }
+        compose.mainClock.autoAdvance = true
+        waitForDescription("管理城市，当前 上海")
+        compose.onNodeWithContentDescription("当前温度 21℃").assertIsDisplayed()
+    }
+
+    @Test
+    fun weatherMapEntryRequestsItsWindowWithoutChangingTheSelectedCity() {
+        waitForDescription("当前温度 16℃")
+        compose.onNodeWithContentDescription("天气地图").performClick()
+        compose.runOnIdle { assertEquals(1, mapOpenCount.get()) }
+        compose.onNodeWithContentDescription("当前温度 16℃").assertIsDisplayed()
     }
 
     @Test

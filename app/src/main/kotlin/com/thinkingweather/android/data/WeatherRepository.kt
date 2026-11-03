@@ -124,7 +124,9 @@ internal class WeatherRepository(
         ))
         phase(listOf(
             Feed("air", "airquality/v1/current/${coordinates.path}", emptyMap(), 600_000, 900_000),
-            Feed("warnings", "weatheralert/v1/current/${coordinates.path}", mapOf("localTime" to "true"), 60_000, 0),
+            // Alert timestamps include an offset. Omitting the optional localTime also supports
+            // existing FC deployments whose original allowlist only accepted lang.
+            Feed("warnings", "weatheralert/v1/current/${coordinates.path}", emptyMap(), 60_000, 0),
             Feed("indices", "v7/indices/1d", mapOf("location" to city.location, "type" to "0"), 3_600_000, 3_600_000),
         ))
         } ?: listOf("hourly", "daily", "air", "warnings", "indices").filterNot(parts::containsKey).forEach { unavailable += "${it}_unavailable" }

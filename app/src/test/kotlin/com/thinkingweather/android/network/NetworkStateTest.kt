@@ -16,4 +16,18 @@ class NetworkStateTest {
         assertEquals(NetworkState.OTHER, networkState(true, false, false))
         assertNull(networkNotice(NetworkState.OTHER))
     }
+
+    @Test fun cellularNoticeIsAcknowledgedOnceEvenAfterNetworkHandoverAndNewActivity() {
+        var saved = false
+        var writes = 0
+        val policy = NetworkNoticePolicy(saved) { saved = true; writes++ }
+        assertNotNull(policy.message(NetworkState.CELLULAR))
+        assertNull(policy.message(NetworkState.CELLULAR))
+        assertNull(policy.message(NetworkState.OTHER))
+        assertEquals("当前未连接网络", policy.message(NetworkState.OFFLINE))
+        assertNull(policy.message(NetworkState.CELLULAR))
+        val recreated = NetworkNoticePolicy(saved) { writes++ }
+        assertNull(recreated.message(NetworkState.CELLULAR))
+        assertEquals(1, writes)
+    }
 }
